@@ -1,11 +1,9 @@
 name: Infestor Python tests
 
-# on:
-#   pull_request:
-#     paths:
-#       - 'python/**'
-
-on: [ push ]
+on:
+  pull_request:
+    paths:
+      - 'python/**'
 
 defaults:
   run:
