@@ -1,0 +1,12 @@
+from humbug.consent import HumbugConsent, environment_variable_opt_in, yes
+from humbug.report import HumbugReporter
+
+consent = HumbugConsent(
+    environment_variable_opt_in("REPORTING_ENABLED", yes)
+)
+
+reporter = HumbugReporter(
+    name="{project_name}",
+    consent=consent,
+    bugout_token="{reporter_token}",
+)
