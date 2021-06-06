@@ -1,9 +1,11 @@
+import os
 from setuptools import find_packages, setup
 
 from infestor.version import INFESTOR_VERSION
 
 long_description = ""
-with open("README.md") as ifp:
+README_PATH = os.path.join(os.path.dirname(__file__), "..", "README.md")
+with open(README_PATH) as ifp:
     long_description = ifp.read()
 
 setup(
