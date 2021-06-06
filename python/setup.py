@@ -12,6 +12,7 @@ setup(
     name="bugout-infestor",
     version=INFESTOR_VERSION,
     packages=find_packages(),
+    python_requires=">=3.8",
     install_requires=["atomicwrites", "humbug", "pygit2"],
     extras_require={
         "dev": ["black", "mypy", "wheel"],
