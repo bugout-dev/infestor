@@ -113,6 +113,67 @@ def is_reporter_nakedly_imported(
     return (visitor.reporter_nakedly_imported, visitor.reporter_imported_as)
 
 
+
+def list_reporter_imports(
+    repository: str, python_root: str, candidate_files: Optional[Sequence[str]] = None
+) -> Dict[str, ast.Module]:
+    """
+    Args:
+    1. repository - Path to repository in which Infestor has been set up
+    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
+    3. candidate_files - Optional list of files to restrict analysis to
+    """
+    results: Dict[str, ast.Module] = {}
+
+    config_file = default_config_file(repository)
+    configuration = load_config(config_file).get(python_root)
+    if configuration is None:
+        raise GenerateReporterError(
+            f"Could not find Python root ({python_root}) in configuration file ({config_file})"
+        )
+
+    if configuration.reporter_filepath is None:
+        # No infestor-managed reporter file, so just return quietly
+        return results
+
+    # Until the end of the loop, this is reversed
+    reporter_filepath = os.path.join(python_root, configuration.reporter_filepath)
+    dirname, basename = os.path.split(reporter_filepath)
+    base_module, _ = os.path.splitext(basename)
+    reporter_module_components: List[str] = [base_module]
+    while True:
+        dirname, basename = os.path.split(dirname)
+        if basename == "":
+            break
+        reporter_module_components.append(basename)
+        if dirname == "":
+            break
+    reporter_module_components.reverse()
+    reporter_module = ".".join(reporter_module_components)
+
+    if candidate_files is None:
+        candidate_files = python_files(repository, python_root)
+
+    for candidate_file in candidate_files:
+        module: Optional[ast.Module] = None
+        with open(candidate_file, "r") as ifp:
+            module = ast.parse(ifp.read())
+
+        for statement in module.body:
+            if isinstance(statement, ast.Import):
+                for name in statement.names:
+                    if name.name == reporter_module:
+                        results[candidate_file] = module
+            elif isinstance(statement, ast.ImportFrom):
+                module_name = f"{'.'*statement.level}{statement.module}"
+                qualified_module_name = importlib.util.resolve_name(
+                    module_name, python_root
+                )
+                if qualified_module_name == reporter_module:
+                    results[candidate_file] = module
+
+    return results
+
 def add_system_report(
     repository: str, python_root: str, submodule_path: Optional[str] = None
 ) -> None:
@@ -205,67 +266,6 @@ def add_system_report(
     with open(target_file, "w") as ofp:
         for line in source_lines:
             ofp.write(line)
-
-
-def list_reporter_imports(
-    repository: str, python_root: str, candidate_files: Optional[Sequence[str]] = None
-) -> Dict[str, ast.Module]:
-    """
-    Args:
-    1. repository - Path to repository in which Infestor has been set up
-    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
-    3. candidate_files - Optional list of files to restrict analysis to
-    """
-    results: Dict[str, ast.Module] = {}
-
-    config_file = default_config_file(repository)
-    configuration = load_config(config_file).get(python_root)
-    if configuration is None:
-        raise GenerateReporterError(
-            f"Could not find Python root ({python_root}) in configuration file ({config_file})"
-        )
-
-    if configuration.reporter_filepath is None:
-        # No infestor-managed reporter file, so just return quietly
-        return results
-
-    # Until the end of the loop, this is reversed
-    reporter_filepath = os.path.join(python_root, configuration.reporter_filepath)
-    dirname, basename = os.path.split(reporter_filepath)
-    base_module, _ = os.path.splitext(basename)
-    reporter_module_components: List[str] = [base_module]
-    while True:
-        dirname, basename = os.path.split(dirname)
-        if basename == "":
-            break
-        reporter_module_components.append(basename)
-        if dirname == "":
-            break
-    reporter_module_components.reverse()
-    reporter_module = ".".join(reporter_module_components)
-
-    if candidate_files is None:
-        candidate_files = python_files(repository, python_root)
-
-    for candidate_file in candidate_files:
-        module: Optional[ast.Module] = None
-        with open(candidate_file, "r") as ifp:
-            module = ast.parse(ifp.read())
-
-        for statement in module.body:
-            if isinstance(statement, ast.Import):
-                for name in statement.names:
-                    if name.name == reporter_module:
-                        results[candidate_file] = module
-            elif isinstance(statement, ast.ImportFrom):
-                module_name = f"{'.'*statement.level}{statement.module}"
-                qualified_module_name = importlib.util.resolve_name(
-                    module_name, python_root
-                )
-                if qualified_module_name == reporter_module:
-                    results[candidate_file] = module
-
-    return results
 
 
 def list_system_reports(
