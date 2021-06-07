@@ -4,8 +4,11 @@ Command line interface for the Humbug infestor.
 import argparse
 import os
 import sys
+from typing import Callable, Tuple
 
 from . import config, manage
+
+CLIHandler = Callable[[argparse.Namespace], None]
 
 
 def handle_config_init(args: argparse.Namespace) -> None:
@@ -57,12 +60,13 @@ def handle_config_token(args: argparse.Namespace) -> None:
         args.token,
     )
 
-    manage.add_reporter(
-        args.repository,
-        python_root,
-        config_object[python_root].reporter_filepath,
-        force=True,
-    )
+    if config_object[python_root].reporter_filepath is not None:
+        manage.add_reporter(
+            args.repository,
+            python_root,
+            config_object[python_root].reporter_filepath,
+            force=True,
+        )
 
     print(config_object)
 
@@ -73,20 +77,38 @@ def handle_reporter_add(args: argparse.Namespace) -> None:
     )
 
 
-def handle_system_report_add(args: argparse.Namespace) -> None:
-    manage.add_system_report(args.repository, args.python_root, args.submodule)
+def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIHandler]:
+    """
+    Returns a tuple of the form:
+    (handle_list, handle_add, handle_remove)
+    """
 
+    def handle_list(args: argparse.Namespace) -> None:
+        results = manage.list_calls(call_type, args.repository, args.python_root)
+        for filepath, calls in results.items():
+            print(f"Lines in {filepath}:")
+            for report_call in calls:
+                print(f"\t- {report_call.lineno}")
 
-def handle_system_report_list(args: argparse.Namespace) -> None:
-    results = manage.list_system_reports(args.repository, args.python_root)
-    for filepath, calls in results.items():
-        print(f"Lines in {filepath}:")
-        for report_call in calls:
-            print(f"\t- {report_call.lineno}")
+    def handle_add(args: argparse.Namespace) -> None:
+        # TODO(zomglings): Is there a better way to check if an argparse.Namespace has a given member?
+        if vars(args).get("submodule") is not None:
+            manage.add_call(
+                call_type, args.repository, args.python_root, args.submodule
+            )
+        else:
+            manage.add_call(call_type, args.repository, args.python_root)
 
+    def handle_remove(args: argparse.Namespace) -> None:
+        # TODO(zomglings): Ditto
+        if vars(args).get("submodule") is not None:
+            manage.remove_calls(
+                call_type, args.repository, args.python_root, args.submodule
+            )
+        else:
+            manage.remove_calls(call_type, args.repository, args.python_root)
 
-def handle_system_report_remove(args: argparse.Namespace) -> None:
-    manage.remove_system_report(args.repository, args.python_root, args.submodule)
+    return (handle_list, handle_add, handle_remove)
 
 
 def generate_argument_parser() -> argparse.ArgumentParser:
@@ -214,6 +236,30 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     system_report_parser.set_defaults(func=lambda _: system_report_parser.print_help())
     system_report_subcommands = system_report_parser.add_subparsers()
 
+    (
+        handle_system_report_list,
+        handle_system_report_add,
+        handle_system_report_remove,
+    ) = generate_call_handlers(manage.CALL_TYPE_SYSTEM_REPORT)
+
+    system_report_list_parser = system_report_subcommands.add_parser(
+        "list",
+        description="Adds reporting code to a given module",
+    )
+    system_report_list_parser.add_argument(
+        "-r",
+        "--repository",
+        default=current_working_directory,
+        help=f"Path to git repository containing your code base (default: {current_working_directory})",
+    )
+    system_report_list_parser.add_argument(
+        "-P",
+        "--python-root",
+        required=True,
+        help="Root directory for Python code/module you want to setup reporting for (this is the relevant key in infestor.json)",
+    )
+    system_report_list_parser.set_defaults(func=handle_system_report_list)
+
     system_report_add_parser = system_report_subcommands.add_parser(
         "add",
         description="Adds reporting code to a given module",
@@ -238,24 +284,6 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     )
     system_report_add_parser.set_defaults(func=handle_system_report_add)
 
-    system_report_list_parser = system_report_subcommands.add_parser(
-        "list",
-        description="Adds reporting code to a given module",
-    )
-    system_report_list_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    system_report_list_parser.add_argument(
-        "-P",
-        "--python-root",
-        required=True,
-        help="Root directory for Python code/module you want to setup reporting for (this is the relevant key in infestor.json)",
-    )
-    system_report_list_parser.set_defaults(func=handle_system_report_list)
-
     system_report_remove_parser = system_report_subcommands.add_parser(
         "remove", description="Removes reporting code from a given module"
     )
@@ -278,6 +306,72 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         help="Path (relative to Python root) to submodule in which to fire off a system report",
     )
     system_report_remove_parser.set_defaults(func=handle_system_report_remove)
+
+    excepthook_parser = subcommands.add_parser(
+        "excepthook", description="Manage crash reporting (of all uncaught exceptions)"
+    )
+    excepthook_parser.set_defaults(func=lambda _: excepthook_parser.print_help())
+    excepthook_subcommands = excepthook_parser.add_subparsers()
+
+    (
+        handle_excepthook_list,
+        handle_excepthook_add,
+        handle_excepthook_remove,
+    ) = generate_call_handlers(manage.CALL_TYPE_SETUP_EXCEPTHOOK)
+
+    excepthook_add_parser = excepthook_subcommands.add_parser(
+        "add",
+        description="Adds crash reporting to a given package",
+    )
+    excepthook_add_parser.add_argument(
+        "-r",
+        "--repository",
+        default=current_working_directory,
+        help=f"Path to git repository containing your code base (default: {current_working_directory})",
+    )
+    excepthook_add_parser.add_argument(
+        "-P",
+        "--python-root",
+        required=True,
+        help="Root directory for Python package/script you want to setup crash reporting for (this is the relevant key in infestor.json)",
+    )
+    excepthook_add_parser.set_defaults(func=handle_excepthook_add)
+
+    excepthook_remove_parser = excepthook_subcommands.add_parser(
+        "remove",
+        description="Adds crash reporting to a given package",
+    )
+    excepthook_remove_parser.add_argument(
+        "-r",
+        "--repository",
+        default=current_working_directory,
+        help=f"Path to git repository containing your code base (default: {current_working_directory})",
+    )
+    excepthook_remove_parser.add_argument(
+        "-P",
+        "--python-root",
+        required=True,
+        help="Root directory for Python package/script you want to setup crash reporting for (this is the relevant key in infestor.json)",
+    )
+    excepthook_remove_parser.set_defaults(func=handle_excepthook_remove)
+
+    excepthook_list_parser = excepthook_subcommands.add_parser(
+        "list",
+        description="Adds reporting code to a given module",
+    )
+    excepthook_list_parser.add_argument(
+        "-r",
+        "--repository",
+        default=current_working_directory,
+        help=f"Path to git repository containing your code base (default: {current_working_directory})",
+    )
+    excepthook_list_parser.add_argument(
+        "-P",
+        "--python-root",
+        required=True,
+        help="Root directory for Python code/module you want to setup reporting for (this is the relevant key in infestor.json)",
+    )
+    excepthook_list_parser.set_defaults(func=handle_excepthook_list)
 
     return parser
 

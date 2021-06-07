@@ -95,8 +95,10 @@ class TestSetupReporter(unittest.TestCase):
         config.initialize(
             self.repository, self.package_dir, os.path.basename(self.package_dir)
         )
-        results = manage.list_system_reports(
-            self.repository, os.path.basename(self.package_dir)
+        results = manage.list_calls(
+            manage.CALL_TYPE_SYSTEM_REPORT,
+            self.repository,
+            os.path.basename(self.package_dir),
         )
         self.assertDictEqual(results, {})
 
