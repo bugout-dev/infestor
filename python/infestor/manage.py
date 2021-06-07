@@ -52,6 +52,67 @@ def python_files(repository: str, python_root: str) -> Sequence[str]:
     return results
 
 
+def last_naked_import_ending_line_number(module: ast.Module) -> Optional[int]:
+    """
+    Returns the number of the line on which the last top-level import (or import from) ends.
+    """
+    ending_line_number = None
+    for statement in module.body:
+        if isinstance(statement, ast.Import) or isinstance(statement, ast.ImportFrom):
+            ending_line_number = statement.end_lineno
+    return ending_line_number
+
+
+class CheckReporterImportedVisitor(ast.NodeVisitor):
+    def __init__(self, reporter_module_path: str, relative_imports: bool):
+        """
+        reporter_module_path - This is the Python module path (e.g. a.b.c) to the module in which the
+        reporter is defined
+
+        This static analyzer just checks if the reporter module is imported (either as an absolute or
+        relative import) in a given ast.Module object.
+        """
+        self.relative_imports = relative_imports
+        self.reporter_module_path = reporter_module_path
+        self.reporter_nakedly_imported = False
+        self.reporter_imported_as: Optional[str] = None
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> Any:
+        if self.relative_imports:
+            expected_level = 0
+            for character in self.reporter_module_path:
+                if character == ".":
+                    expected_level += 1
+                else:
+                    break
+
+            if (
+                node.level == expected_level
+                and node.module == self.reporter_module_path[expected_level:]
+            ):
+                for alias in node.names:
+                    if alias.name == "reporter":
+                        self.reporter_nakedly_imported = True
+                        self.reporter_imported_as = "reporter"
+                        if alias.asname is not None:
+                            self.reporter_imported_as = alias.asname
+        elif node.module == self.reporter_module_path:
+            for alias in node.names:
+                if alias.name == "reporter":
+                    self.reporter_nakedly_imported = True
+                    self.reporter_imported_as = "reporter"
+                    if alias.asname is not None:
+                        self.reporter_imported_as = alias.asname
+
+
+def is_reporter_nakedly_imported(
+    module: ast.Module, reporter_module_path: str, relative_imports: bool
+) -> Tuple[bool, Optional[str]]:
+    visitor = CheckReporterImportedVisitor(reporter_module_path, relative_imports)
+    visitor.visit(module)
+    return (visitor.reporter_nakedly_imported, visitor.reporter_imported_as)
+
+
 def add_system_report(
     repository: str, python_root: str, submodule_path: Optional[str] = None
 ) -> None:
@@ -86,14 +147,17 @@ def add_system_report(
         with open(target_file, "w") as ofp:
             ofp.write("")
 
+    existing_calls = list_system_reports(
+        repository, python_root, candidate_files=[target_file]
+    )
+    if existing_calls:
+        return
+
     module: Optional[ast.Module] = None
     with open(target_file, "r") as ifp:
         module = ast.parse(ifp.read())
 
-    last_import_line_number = 0
-    for statement in module.body:
-        if isinstance(statement, ast.Import) or isinstance(statement, ast.ImportFrom):
-            last_import_line_number = statement.lineno
+    final_import_end_lineno = last_naked_import_ending_line_number(module)
 
     # TODO(zomglings): Create an AST node which imports the reporter and runs reporter.system_report()
     path_to_reporter_file = os.path.relpath(
@@ -114,19 +178,29 @@ def add_system_report(
             source_lines.append(line)
 
     new_code = ""
+    name: Optional[str] = None
     if not configuration.relative_imports:
         path_components = [os.path.basename(python_root)] + path_components
         name = ".".join(path_components)
-        new_code = f"import {name}\n{name}.reporter.system_report()\n"
+        new_code = f"from {name} import reporter\nreporter.system_report()\n"
     else:
-        name = ".".join(path_components)
-        new_code = f"from .{name} import reporter\nreporter.system_report()\n"
+        name = "." + ".".join(path_components)
+        new_code = f"from {name} import reporter\nreporter.system_report()\n"
 
-    source_lines = (
-        source_lines[:last_import_line_number]
-        + [new_code]
-        + source_lines[last_import_line_number:]
+    reporter_imported, reporter_imported_as = is_reporter_nakedly_imported(
+        module, name, configuration.relative_imports
     )
+    if reporter_imported and reporter_imported_as is not None:
+        new_code = f"{reporter_imported_as}.system_report()\n"
+
+    if final_import_end_lineno is not None:
+        source_lines = (
+            source_lines[:final_import_end_lineno]
+            + [new_code]
+            + source_lines[final_import_end_lineno:]
+        )
+    else:
+        source_lines.append(new_code)
 
     with open(target_file, "w") as ofp:
         for line in source_lines:
@@ -263,13 +337,11 @@ def remove_system_report(
                         deletions[current_deletion][1] is None
                         or i <= cast(int, deletions[current_deletion][1])
                     ):
+                        if current_deletion + 1 < len(deletions):
+                            current_deletion += 1
                         continue
                     else:
                         new_lines.append(line)
-                    if i == deletions[current_deletion][
-                        1
-                    ] and current_deletion + 1 < len(deletions):
-                        current_deletion += 1
 
             with open(filepath, "w") as ofp:
                 ofp.write("".join(new_lines))
@@ -286,7 +358,6 @@ def add_reporter(
 
     config_file = default_config_file(repository)
     configurations_by_python_root = load_config(config_file)
-
     normalized_python_root = python_root_relative_to_repository_root(
         repository, python_root
     )

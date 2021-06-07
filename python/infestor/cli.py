@@ -57,12 +57,13 @@ def handle_config_token(args: argparse.Namespace) -> None:
         args.token,
     )
 
-    manage.add_reporter(
-        args.repository,
-        python_root,
-        config_object[python_root].reporter_filepath,
-        force=True,
-    )
+    if config_object[python_root].reporter_filepath is not None:
+        manage.add_reporter(
+            args.repository,
+            python_root,
+            config_object[python_root].reporter_filepath,
+            force=True,
+        )
 
     print(config_object)
 
