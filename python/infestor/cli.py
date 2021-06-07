@@ -47,18 +47,30 @@ def handle_config_validate(args: argparse.Namespace) -> None:
 
 def handle_config_token(args: argparse.Namespace) -> None:
     config_file = config.default_config_file(args.repository)
+    python_root = config.python_root_relative_to_repository_root(
+        args.repository, args.python_root
+    )
+
     config_object = config.set_reporter_token(
         config_file,
-        config.python_root_relative_to_repository_root(
-            args.repository, args.python_root
-        ),
+        python_root,
         args.token,
     )
+
+    manage.add_reporter(
+        args.repository,
+        python_root,
+        config_object[python_root].reporter_filepath,
+        force=True,
+    )
+
     print(config_object)
 
 
 def handle_reporter_add(args: argparse.Namespace) -> None:
-    manage.add_reporter(args.repository, args.python_root, args.reporter_filepath)
+    manage.add_reporter(
+        args.repository, args.python_root, args.reporter_filepath, args.force
+    )
 
 
 def handle_system_report_add(args: argparse.Namespace) -> None:
@@ -187,6 +199,12 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         required=False,
         default=manage.DEFAULT_REPORTER_FILENAME,
         help=f"Path (relative to Python root) at which we should set up the reporter integration (default: {manage.DEFAULT_REPORTER_FILENAME})",
+    )
+    reporter_add_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Set this flag if you want to overwrite the reporter file if it already exists",
     )
     reporter_add_parser.set_defaults(func=handle_reporter_add)
 

@@ -279,6 +279,7 @@ def add_reporter(
     repository: str,
     python_root: str,
     reporter_filepath: Optional[str] = None,
+    force: bool = False,
 ) -> None:
     if REPORTER_FILE_TEMPLATE is None:
         raise GenerateReporterError("Could not load reporter template file")
@@ -313,7 +314,7 @@ def add_reporter(
     reporter_filepath_full = os.path.join(
         repository, configuration.python_root, reporter_filepath
     )
-    if os.path.exists(reporter_filepath_full):
+    if (not force) and os.path.exists(reporter_filepath_full):
         raise GenerateReporterError(
             f"Object already exists at desired reporter filepath: {reporter_filepath_full}"
         )
