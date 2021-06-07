@@ -362,10 +362,9 @@ def remove_calls(
                 ofp.write("".join(new_lines))
 
 
+# TODO(zomglings): Use an Enum here.
 CALL_TYPE_SYSTEM_REPORT = "system_report"
-list_system_reports = functools.partial(list_calls, CALL_TYPE_SYSTEM_REPORT)
-add_system_report = functools.partial(add_call, CALL_TYPE_SYSTEM_REPORT)
-remove_system_reports = functools.partial(remove_calls, CALL_TYPE_SYSTEM_REPORT)
+CALL_TYPE_SETUP_EXCEPTHOOK = "setup_excepthook"
 
 
 def add_reporter(
