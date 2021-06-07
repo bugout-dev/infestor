@@ -1,5 +1,4 @@
 import ast
-import functools
 import importlib.util
 import logging
 import os
