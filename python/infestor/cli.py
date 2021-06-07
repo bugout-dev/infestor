@@ -87,7 +87,7 @@ def handle_system_report_list(args: argparse.Namespace) -> None:
 
 
 def handle_system_report_remove(args: argparse.Namespace) -> None:
-    manage.remove_system_report(args.repository, args.python_root, args.submodule)
+    manage.remove_system_reports(args.repository, args.python_root, args.submodule)
 
 
 def generate_argument_parser() -> argparse.ArgumentParser:

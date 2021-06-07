@@ -1,4 +1,5 @@
 import ast
+import functools
 import importlib.util
 import logging
 import os
@@ -113,7 +114,6 @@ def is_reporter_nakedly_imported(
     return (visitor.reporter_nakedly_imported, visitor.reporter_imported_as)
 
 
-
 def list_reporter_imports(
     repository: str, python_root: str, candidate_files: Optional[Sequence[str]] = None
 ) -> Dict[str, ast.Module]:
@@ -174,11 +174,58 @@ def list_reporter_imports(
 
     return results
 
-def add_system_report(
-    repository: str, python_root: str, submodule_path: Optional[str] = None
+
+def list_calls(
+    call_type: str,
+    repository: str,
+    python_root: str,
+    candidate_files: Optional[Sequence[str]] = None,
+) -> Dict[str, List[ast.Call]]:
+    """
+    Args:
+    0. call_type - Type of call to list in the given package (e.g. "system_report", "setup_excepthook", etc.)
+    1. repository - Path to repository in which Infestor has been set up
+    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
+    3. candidate_files - Optional list of files to restrict analysis to
+    """
+    results: Dict[str, List[ast.Call]] = {}
+    files_with_reporter = list_reporter_imports(
+        repository, python_root, candidate_files
+    )
+
+    call_logger = CallVisitor()
+    for filepath, file_ast in files_with_reporter.items():
+        calls: List[ast.Call] = []
+        call_logger.calls = []
+        call_logger.visit(file_ast)
+
+        for call_object in call_logger.calls:
+            if (
+                isinstance(call_object.func, ast.Name)
+                and call_object.func.id == call_type
+            ):
+                calls.append(call_object)
+            elif (
+                isinstance(call_object.func, ast.Attribute)
+                and call_object.func.attr == call_type
+            ):
+                calls.append(call_object)
+
+        if calls:
+            results[filepath] = calls
+
+    return results
+
+
+def add_call(
+    call_type: str,
+    repository: str,
+    python_root: str,
+    submodule_path: Optional[str] = None,
 ) -> None:
     """
     Args:
+    0. call_type - Type of call to add to the given package (e.g. "system_report", "setup_excepthook", etc.)
     1. repository - Path to repository in which Infestor has been set up
     2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
     3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
@@ -208,8 +255,8 @@ def add_system_report(
         with open(target_file, "w") as ofp:
             ofp.write("")
 
-    existing_calls = list_system_reports(
-        repository, python_root, candidate_files=[target_file]
+    existing_calls = list_calls(
+        call_type, repository, python_root, candidate_files=[target_file]
     )
     if existing_calls:
         return
@@ -243,16 +290,16 @@ def add_system_report(
     if not configuration.relative_imports:
         path_components = [os.path.basename(python_root)] + path_components
         name = ".".join(path_components)
-        new_code = f"from {name} import reporter\nreporter.system_report()\n"
+        new_code = f"from {name} import reporter\nreporter.{call_type}()\n"
     else:
         name = "." + ".".join(path_components)
-        new_code = f"from {name} import reporter\nreporter.system_report()\n"
+        new_code = f"from {name} import reporter\nreporter.{call_type}()\n"
 
     reporter_imported, reporter_imported_as = is_reporter_nakedly_imported(
         module, name, configuration.relative_imports
     )
     if reporter_imported and reporter_imported_as is not None:
-        new_code = f"{reporter_imported_as}.system_report()\n"
+        new_code = f"{reporter_imported_as}.{call_type}()\n"
 
     if final_import_end_lineno is not None:
         source_lines = (
@@ -268,49 +315,15 @@ def add_system_report(
             ofp.write(line)
 
 
-def list_system_reports(
-    repository: str, python_root: str, candidate_files: Optional[Sequence[str]] = None
-) -> Dict[str, List[ast.Call]]:
-    """
-    Args:
-    1. repository - Path to repository in which Infestor has been set up
-    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
-    3. candidate_files - Optional list of files to restrict analysis to
-    """
-    results: Dict[str, List[ast.Call]] = {}
-    files_with_reporter = list_reporter_imports(
-        repository, python_root, candidate_files
-    )
-
-    call_logger = CallVisitor()
-    for filepath, file_ast in files_with_reporter.items():
-        system_reports: List[ast.Call] = []
-        call_logger.calls = []
-        call_logger.visit(file_ast)
-
-        for call_object in call_logger.calls:
-            if (
-                isinstance(call_object.func, ast.Name)
-                and call_object.func.id == "system_report"
-            ):
-                system_reports.append(call_object)
-            elif (
-                isinstance(call_object.func, ast.Attribute)
-                and call_object.func.attr == "system_report"
-            ):
-                system_reports.append(call_object)
-
-        if system_reports:
-            results[filepath] = system_reports
-
-    return results
-
-
-def remove_system_report(
-    repository: str, python_root: str, submodule_path: Optional[str] = None
+def remove_calls(
+    call_type: str,
+    repository: str,
+    python_root: str,
+    submodule_path: Optional[str] = None,
 ) -> None:
     """
     Args:
+    0. call_type - Type of call to remove from the given package (e.g. "system_report", "setup_excepthook", etc.)
     1. repository - Path to repository in which Infestor has been set up
     2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
     3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
@@ -320,7 +333,9 @@ def remove_system_report(
         candidate_files = python_files(repository, python_root)
     candidate_files = cast(Sequence[str], candidate_files)
 
-    system_report_calls = list_system_reports(repository, python_root, candidate_files)
+    system_report_calls = list_calls(
+        call_type, repository, python_root, candidate_files
+    )
 
     for filepath, calls in system_report_calls.items():
         deletions: List[Tuple[int, Optional[int]]] = [
@@ -345,6 +360,12 @@ def remove_system_report(
 
             with open(filepath, "w") as ofp:
                 ofp.write("".join(new_lines))
+
+
+CALL_TYPE_SYSTEM_REPORT = "system_report"
+list_system_reports = functools.partial(list_calls, CALL_TYPE_SYSTEM_REPORT)
+add_system_report = functools.partial(add_call, CALL_TYPE_SYSTEM_REPORT)
+remove_system_reports = functools.partial(remove_calls, CALL_TYPE_SYSTEM_REPORT)
 
 
 def add_reporter(
