@@ -343,21 +343,6 @@ def add_call(
     2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
     3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
     """
-    config_file = default_config_file(repository)
-    configuration = load_config(config_file).get(python_root)
-    if configuration is None:
-        raise GenerateReporterError(
-            f"Could not find Python root ({python_root}) in configuration file ({config_file})"
-        )
-
-    if configuration.reporter_filepath is None:
-        raise GenerateReporterError(
-            f"No reporter defined for project. Try running:\n\t$ infestor -r {repository} generate setup -P {python_root} -o report.py"
-        )
-    reporter_filepath = os.path.join(
-        repository, python_root, configuration.reporter_filepath
-    )
-
     target_file = submodule_path
     if target_file is None:
         target_file = os.path.join(repository, python_root)
@@ -374,54 +359,21 @@ def add_call(
     if existing_calls:
         return
 
-    module: Optional[ast.Module] = None
-    with open(target_file, "r") as ifp:
-        module = ast.parse(ifp.read())
-
-    final_import_end_lineno = last_naked_import_ending_line_number(module)
-
-    # TODO(zomglings): Create an AST node which imports the reporter and runs reporter.system_report()
-    path_to_reporter_file = os.path.relpath(
-        os.path.join(repository, python_root, reporter_filepath),
-        os.path.dirname(target_file),
+    reporter_imported_as, final_import_end_lineno = ensure_reporter_nakedly_imported(
+        repository, python_root, target_file
     )
-    path_components: List[str] = []
-    current_path = path_to_reporter_file
-    while current_path:
-        current_path, base = os.path.split(current_path)
-        if base == os.path.basename(reporter_filepath):
-            base, _ = os.path.splitext(base)
-        path_components = [base] + path_components
 
     source_lines: List[str] = []
     with open(target_file, "r") as ifp:
         for line in ifp:
             source_lines.append(line)
 
-    new_code = ""
-    name: Optional[str] = None
-    if not configuration.relative_imports:
-        path_components = [os.path.basename(python_root)] + path_components
-        name = ".".join(path_components)
-        new_code = f"from {name} import reporter\nreporter.{call_type}()\n"
-    else:
-        name = "." + ".".join(path_components)
-        new_code = f"from {name} import reporter\nreporter.{call_type}()\n"
-
-    reporter_imported, reporter_imported_as = is_reporter_nakedly_imported(
-        module, name, configuration.relative_imports
+    new_code = f"{reporter_imported_as}.{call_type}()\n"
+    source_lines = (
+        source_lines[:final_import_end_lineno]
+        + [new_code]
+        + source_lines[final_import_end_lineno:]
     )
-    if reporter_imported and reporter_imported_as is not None:
-        new_code = f"{reporter_imported_as}.{call_type}()\n"
-
-    if final_import_end_lineno is not None:
-        source_lines = (
-            source_lines[:final_import_end_lineno]
-            + [new_code]
-            + source_lines[final_import_end_lineno:]
-        )
-    else:
-        source_lines.append(new_code)
 
     with open(target_file, "w") as ofp:
         for line in source_lines:
