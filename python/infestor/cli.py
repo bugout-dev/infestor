@@ -113,10 +113,10 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
 
 def generate_decorator_handlers(
     decorator_type: str,
-) -> Tuple[CLIHandler, CLIHandler, CLIHandler]:
+) -> Tuple[CLIHandler, CLIHandler, CLIHandler, CLIHandler]:
     """
     Returns a tuple of the form:
-    (handle_list, handle_add, handle_remove)
+    (handle_list, handle_candidates, handle_add, handle_remove)
     """
 
     def handle_list(args: argparse.Namespace) -> None:
@@ -128,13 +128,27 @@ def generate_decorator_handlers(
             for decorated_function in function_definitions:
                 print(f"\t- {decorated_function.lineno}")
 
+    def handle_candidates(args: argparse.Namespace) -> None:
+        results = manage.decorator_candidates(
+            decorator_type, args.repository, args.python_root, args.submodule
+        )
+        print(f"You can add the {decorator_type} decorator to the following functions:")
+        for function_definition in results:
+            print(f"\t- (line {function_definition.lineno}) {function_definition.name}")
+
     def handle_add(args: argparse.Namespace) -> None:
-        pass
+        manage.add_decorators(
+            decorator_type,
+            args.repository,
+            args.python_root,
+            args.submodule,
+            args.lines,
+        )
 
     def handle_remove(args: argparse.Namespace) -> None:
         pass
 
-    return (handle_list, handle_add, handle_remove)
+    return (handle_list, handle_candidates, handle_add, handle_remove)
 
 
 def generate_argument_parser() -> argparse.ArgumentParser:
@@ -323,6 +337,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
 
     (
         handle_record_call_list,
+        handle_record_call_candidates,
         handle_record_call_add,
         handle_record_call_remove,
     ) = generate_decorator_handlers(manage.DECORATOR_TYPE_RECORD_CALL)
@@ -334,11 +349,36 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     populate_leaf_parser_with_common_args(record_call_list_parser)
     record_call_list_parser.set_defaults(func=handle_record_call_list)
 
+    record_call_candidates_parser = record_call_subcommands.add_parser(
+        "candidates",
+        description="List all functions/methods in the given submodule on which we can add the decorator",
+    )
+    populate_leaf_parser_with_common_args(record_call_candidates_parser)
+    record_call_candidates_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_call_candidates_parser.set_defaults(func=handle_record_call_candidates)
+
     record_call_add_parser = record_call_subcommands.add_parser(
         "add",
         description="Adds reporting code to a given module",
     )
     populate_leaf_parser_with_common_args(record_call_add_parser)
+    record_call_add_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_call_add_parser.add_argument(
+        "lines",
+        type=int,
+        nargs="+",
+        help="Line numbers of function definitions to decorate",
+    )
     record_call_add_parser.set_defaults(func=handle_record_call_add)
 
     record_call_remove_parser = record_call_subcommands.add_parser(

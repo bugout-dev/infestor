@@ -32,6 +32,10 @@ class GenerateReporterError(Exception):
     pass
 
 
+class GenerateDecoratorError(Exception):
+    pass
+
+
 class CallVisitor(ast.NodeVisitor):
     def __init__(self):
         self.calls: List[ast.Call] = []
@@ -432,6 +436,8 @@ def list_decorators(
     repository: str,
     python_root: str,
     candidate_files: Optional[Sequence[str]] = None,
+    skip_reporter_check: bool = False,
+    complement: bool = False,
 ) -> Dict[str, List[ast.FunctionDef]]:
     """
     Args:
@@ -445,15 +451,21 @@ def list_decorators(
     """
     results: Dict[str, List[ast.FunctionDef]] = {}
 
-    files_importing_reporter = list_reporter_imports(
-        repository, python_root, candidate_files
-    )
+    files_to_check: Optional[Dict[str, ast.Module]] = None
+    if not skip_reporter_check:
+        files_to_check = list_reporter_imports(repository, python_root, candidate_files)
+    else:
+        files_to_check = {}
+        for candidate_file in candidate_files:
+            with open(candidate_file, "r") as ifp:
+                files_to_check[candidate_file] = ast.parse(ifp.read())
 
-    for candidate_file, module in files_importing_reporter.items():
-        decorated_function_definitions: List[ast.FunctionDef] = []
+    for candidate_file, module in files_to_check.items():
+        admissible_function_definitions: List[ast.FunctionDef] = []
         visitor = FunctionDefVisitor()
         visitor.visit(module)
         for function_definition in visitor.function_definitions:
+            decorated = False
             for decorator in function_definition.decorator_list:
                 # TODO(zomglings): Make this check more comprehensive (additionally using reporter_imported_as).
                 # After all, there could be another decorator with an attr value of record_call.
@@ -461,14 +473,54 @@ def list_decorators(
                     isinstance(decorator, ast.Attribute)
                     and decorator.attr == decorator_type
                 ):
-                    decorated_function_definitions.append(function_definition)
-        if decorated_function_definitions:
-            results[candidate_file] = decorated_function_definitions
+                    decorated = True
+                    if not complement:
+                        admissible_function_definitions.append(function_definition)
+            if complement and not decorated:
+                admissible_function_definitions.append(function_definition)
+        if admissible_function_definitions:
+            results[candidate_file] = admissible_function_definitions
 
     return results
 
 
-def add_decorator(
+def decorator_candidates(
+    decorator_type: str,
+    repository: str,
+    python_root: str,
+    submodule_path: str,
+) -> List[ast.FunctionDef]:
+    """
+    Args:
+    0. decorator_type - Type of decorator to add to the given package (choices: "record_call", "record_error")
+    1. repository - Path to repository in which Infestor has been set up
+    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
+    3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+
+    Returns a list of tuples of the form:
+    (
+        <function name>,
+        <function definition starting line number>
+    )
+
+    This list is the list of candidate function definitions that the user could decorate (i.e. the ones which
+    do not already have a decorator of the given decorator_type).
+    """
+    wrapped_undecorated_function_definitions = list_decorators(
+        decorator_type,
+        repository,
+        python_root,
+        [submodule_path],
+        skip_reporter_check=True,
+        complement=True,
+    )
+    undecorated_function_definitions = wrapped_undecorated_function_definitions.get(
+        submodule_path, []
+    )
+    return undecorated_function_definitions
+
+
+def add_decorators(
     decorator_type: str,
     repository: str,
     python_root: str,
@@ -483,9 +535,73 @@ def add_decorator(
     3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
     4. linenos: Line numbers where functions are defined that we wish to decorate
     """
-    # Check if we need to import the reporter into this module. If we do, make the import.
-    # If linenos is empty, return a list of function definitions that user could decorate.
-    # Else, add decorator to given function definitions and write file.
+    candidate_function_definitions = decorator_candidates(
+        decorator_type, repository, python_root, submodule_path
+    )
+    candidate_linenos = {
+        function_definition.lineno
+        for function_definition in candidate_function_definitions
+    }
+    for lineno in linenos:
+        if lineno not in candidate_linenos:
+            raise GenerateDecoratorError(
+                f"Non-candidate source code: submodule_path={submodule_path}, lineno={lineno}"
+            )
+
+    reporter_imported_as, _ = ensure_reporter_nakedly_imported(
+        repository, python_root, submodule_path
+    )
+
+    chosen_function_definitions = [
+        function_definition
+        for function_definition in candidate_function_definitions
+        if function_definition.lineno in linenos
+    ]
+
+    chosen_function_definitions_with_boundary = [
+        (
+            function_definition,
+            min(
+                [
+                    function_definition.lineno,
+                    *[
+                        decorator.lineno
+                        for decorator in function_definition.decorator_list
+                    ],
+                ]
+            ),
+        )
+        for function_definition in chosen_function_definitions
+    ]
+    chosen_function_definitions_with_boundary.sort(key=lambda p: p[1])
+
+    source_lines: List[str] = []
+    with open(submodule_path, "r") as ifp:
+        for line in ifp:
+            source_lines.append(line)
+
+    new_source_lines: List[str] = []
+    sl_index = 0
+    fd_index = 0
+    for source_line in source_lines:
+        source_lineno = sl_index + 1
+        function_definition, boundary = chosen_function_definitions_with_boundary[
+            fd_index
+        ]
+        if source_lineno == boundary:
+            new_source_lines.append(
+                f"{' '*function_definition.col_offset}@{reporter_imported_as}.{decorator_type}\n"
+            )
+            fd_index += 1
+            if fd_index >= len(chosen_function_definitions_with_boundary):
+                break
+        new_source_lines.append(source_line)
+        sl_index += 1
+
+    new_source_lines.extend(source_lines[sl_index:])
+    with open(submodule_path, "w") as ofp:
+        for line in new_source_lines:
+            ofp.write(line)
 
 
 def remove_decorators(
