@@ -111,6 +111,54 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
     return (handle_list, handle_add, handle_remove)
 
 
+def generate_decorator_handlers(
+    decorator_type: str,
+) -> Tuple[CLIHandler, CLIHandler, CLIHandler, CLIHandler]:
+    """
+    Returns a tuple of the form:
+    (handle_list, handle_candidates, handle_add, handle_remove)
+    """
+
+    def handle_list(args: argparse.Namespace) -> None:
+        results = manage.list_decorators(
+            decorator_type, args.repository, args.python_root
+        )
+        for filepath, function_definitions in results.items():
+            print(f"Lines in {filepath}:")
+            for decorated_function in function_definitions:
+                print(
+                    f"\t- (line {decorated_function.lineno}) {decorated_function.name}"
+                )
+
+    def handle_candidates(args: argparse.Namespace) -> None:
+        results = manage.decorator_candidates(
+            decorator_type, args.repository, args.python_root, args.submodule
+        )
+        print(f"You can add the {decorator_type} decorator to the following functions:")
+        for function_definition in results:
+            print(f"\t- (line {function_definition.lineno}) {function_definition.name}")
+
+    def handle_add(args: argparse.Namespace) -> None:
+        manage.add_decorators(
+            decorator_type,
+            args.repository,
+            args.python_root,
+            args.submodule,
+            args.lines,
+        )
+
+    def handle_remove(args: argparse.Namespace) -> None:
+        manage.remove_decorators(
+            decorator_type,
+            args.repository,
+            args.python_root,
+            args.submodule,
+            args.lines,
+        )
+
+    return (handle_list, handle_candidates, handle_add, handle_remove)
+
+
 def generate_argument_parser() -> argparse.ArgumentParser:
     current_working_directory = os.getcwd()
 
@@ -119,6 +167,29 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     )
     parser.set_defaults(func=lambda _: parser.print_help())
     subcommands = parser.add_subparsers()
+
+    def populate_leaf_parser_with_common_args(
+        leaf_parser: argparse.ArgumentParser,
+        repository: bool = True,
+        python_root: bool = True,
+    ) -> None:
+        if repository:
+            leaf_parser.add_argument(
+                "-r",
+                "--repository",
+                default=current_working_directory,
+                help=f"Path to git repository containing your code base (default: {current_working_directory})",
+            )
+        if python_root:
+            leaf_parser.add_argument(
+                "-P",
+                "--python-root",
+                required=True,
+                help=(
+                    "Root directory for Python code/module in the repository. If you are integrating with "
+                    "a module, this will be the highest-level directory with an __init__.py file in it."
+                ),
+            )
 
     config_parser = subcommands.add_parser(
         "config", description="Manage infestor configuration"
@@ -129,21 +200,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     config_init_parser = config_subcommands.add_parser(
         "init", description="Initialize an Infestor integration in a project"
     )
-    config_init_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    config_init_parser.add_argument(
-        "-P",
-        "--python-root",
-        required=True,
-        help=(
-            "Root directory for Python code/module in the repository. If you are integrating with "
-            "a module, this will be the highest-level directory with an __init__.py file in it."
-        ),
-    )
+    populate_leaf_parser_with_common_args(config_init_parser)
     config_init_parser.add_argument(
         "-n",
         "--name",
@@ -166,29 +223,13 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     config_validate_parser = config_subcommands.add_parser(
         "validate", description="Validate an Infestor configuration"
     )
-    config_validate_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
+    populate_leaf_parser_with_common_args(config_validate_parser, python_root=False)
     config_validate_parser.set_defaults(func=handle_config_validate)
 
     config_token_parser = config_subcommands.add_parser(
         "token", description="Set a Humbug token for an Infestor integration"
     )
-    config_token_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    config_token_parser.add_argument(
-        "-P",
-        "--python-root",
-        required=True,
-        help="Root directory for Python code/module you want to register a token for (this is the relevant key in infestor.json)",
-    )
+    populate_leaf_parser_with_common_args(config_token_parser)
     config_token_parser.add_argument(
         "token", help="Reporting token generated from https://bugout.dev/account/teams"
     )
@@ -203,18 +244,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     reporter_add_parser = reporter_subcommands.add_parser(
         "add", description="Adds a Humbug reporter to a Python package"
     )
-    reporter_add_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    reporter_add_parser.add_argument(
-        "-P",
-        "--python-root",
-        required=True,
-        help="Root directory for Python code/module you want to setup reporting for (this is the relevant key in infestor.json)",
-    )
+    populate_leaf_parser_with_common_args(reporter_add_parser)
     reporter_add_parser.add_argument(
         "-o",
         "--reporter-filepath",
@@ -246,36 +276,14 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         "list",
         description="Adds reporting code to a given module",
     )
-    system_report_list_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    system_report_list_parser.add_argument(
-        "-P",
-        "--python-root",
-        required=True,
-        help="Root directory for Python code/module you want to setup reporting for (this is the relevant key in infestor.json)",
-    )
+    populate_leaf_parser_with_common_args(system_report_list_parser)
     system_report_list_parser.set_defaults(func=handle_system_report_list)
 
     system_report_add_parser = system_report_subcommands.add_parser(
         "add",
         description="Adds reporting code to a given module",
     )
-    system_report_add_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    system_report_add_parser.add_argument(
-        "-P",
-        "--python-root",
-        required=True,
-        help="Root directory for Python code/module you want to setup reporting for (this is the relevant key in infestor.json)",
-    )
+    populate_leaf_parser_with_common_args(system_report_add_parser)
     system_report_add_parser.add_argument(
         "-m",
         "--submodule",
@@ -287,18 +295,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     system_report_remove_parser = system_report_subcommands.add_parser(
         "remove", description="Removes reporting code from a given module"
     )
-    system_report_remove_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    system_report_remove_parser.add_argument(
-        "-P",
-        "--python-root",
-        required=True,
-        help="Root directory for Python code/module you want to setup reporting for (this is the relevant key in infestor.json)",
-    )
+    populate_leaf_parser_with_common_args(system_report_remove_parser)
     system_report_remove_parser.add_argument(
         "-m",
         "--submodule",
@@ -319,59 +316,97 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         handle_excepthook_remove,
     ) = generate_call_handlers(manage.CALL_TYPE_SETUP_EXCEPTHOOK)
 
+    excepthook_list_parser = excepthook_subcommands.add_parser(
+        "list",
+        description="Adds reporting code to a given module",
+    )
+    populate_leaf_parser_with_common_args(excepthook_list_parser)
+    excepthook_list_parser.set_defaults(func=handle_excepthook_list)
+
     excepthook_add_parser = excepthook_subcommands.add_parser(
         "add",
         description="Adds crash reporting to a given package",
     )
-    excepthook_add_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    excepthook_add_parser.add_argument(
-        "-P",
-        "--python-root",
-        required=True,
-        help="Root directory for Python package/script you want to setup crash reporting for (this is the relevant key in infestor.json)",
-    )
+    populate_leaf_parser_with_common_args(excepthook_add_parser)
     excepthook_add_parser.set_defaults(func=handle_excepthook_add)
 
     excepthook_remove_parser = excepthook_subcommands.add_parser(
         "remove",
         description="Adds crash reporting to a given package",
     )
-    excepthook_remove_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    excepthook_remove_parser.add_argument(
-        "-P",
-        "--python-root",
-        required=True,
-        help="Root directory for Python package/script you want to setup crash reporting for (this is the relevant key in infestor.json)",
-    )
+    populate_leaf_parser_with_common_args(excepthook_remove_parser)
     excepthook_remove_parser.set_defaults(func=handle_excepthook_remove)
 
-    excepthook_list_parser = excepthook_subcommands.add_parser(
+    record_call_parser = subcommands.add_parser(
+        "record-call", description="Record every time a function/method is called"
+    )
+    record_call_parser.set_defaults(func=lambda _: record_call_parser.print_help())
+    record_call_subcommands = record_call_parser.add_subparsers()
+
+    (
+        handle_record_call_list,
+        handle_record_call_candidates,
+        handle_record_call_add,
+        handle_record_call_remove,
+    ) = generate_decorator_handlers(manage.DECORATOR_TYPE_RECORD_CALL)
+
+    record_call_list_parser = record_call_subcommands.add_parser(
         "list",
+        description="List all functions/methods which are currently being recorded",
+    )
+    populate_leaf_parser_with_common_args(record_call_list_parser)
+    record_call_list_parser.set_defaults(func=handle_record_call_list)
+
+    record_call_candidates_parser = record_call_subcommands.add_parser(
+        "candidates",
+        description="List all functions/methods in the given submodule on which we can add the decorator",
+    )
+    populate_leaf_parser_with_common_args(record_call_candidates_parser)
+    record_call_candidates_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_call_candidates_parser.set_defaults(func=handle_record_call_candidates)
+
+    record_call_add_parser = record_call_subcommands.add_parser(
+        "add",
         description="Adds reporting code to a given module",
     )
-    excepthook_list_parser.add_argument(
-        "-r",
-        "--repository",
-        default=current_working_directory,
-        help=f"Path to git repository containing your code base (default: {current_working_directory})",
-    )
-    excepthook_list_parser.add_argument(
-        "-P",
-        "--python-root",
+    populate_leaf_parser_with_common_args(record_call_add_parser)
+    record_call_add_parser.add_argument(
+        "-m",
+        "--submodule",
         required=True,
-        help="Root directory for Python code/module you want to setup reporting for (this is the relevant key in infestor.json)",
+        help="Path (relative to Python root) to submodule in which list candidates",
     )
-    excepthook_list_parser.set_defaults(func=handle_excepthook_list)
+    record_call_add_parser.add_argument(
+        "lines",
+        type=int,
+        nargs="+",
+        help="Line numbers of function definitions to decorate",
+    )
+    record_call_add_parser.set_defaults(func=handle_record_call_add)
+
+    record_call_remove_parser = record_call_subcommands.add_parser(
+        "remove",
+        description="List all functions/methods which are currently being recorded",
+    )
+    populate_leaf_parser_with_common_args(record_call_remove_parser)
+    record_call_remove_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_call_remove_parser.add_argument(
+        "lines",
+        type=int,
+        nargs="+",
+        help="Line numbers of function definitions to decorate",
+    )
+    record_call_remove_parser.set_defaults(func=handle_record_call_remove)
 
     return parser
 

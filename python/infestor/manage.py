@@ -21,8 +21,18 @@ except Exception as e:
     logging.warn(f"WARNING: Could not load reporter template from {TEMPLATE_FILEPATH}:")
     logging.warn(e)
 
+# TODO(zomglings): Use an Enum here.
+CALL_TYPE_SYSTEM_REPORT = "system_report"
+CALL_TYPE_SETUP_EXCEPTHOOK = "setup_excepthook"
+DECORATOR_TYPE_RECORD_CALL = "record_call"
+DECORATOR_TYPE_RECORD_ERRORS = "record_errors"
+
 
 class GenerateReporterError(Exception):
+    pass
+
+
+class GenerateDecoratorError(Exception):
     pass
 
 
@@ -32,6 +42,15 @@ class CallVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> Any:
         self.calls.append(node)
+
+
+class FunctionDefVisitor(ast.NodeVisitor):
+    def __init__(self):
+        self.function_definitions: List[ast.FunctionDef] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.function_definitions.append(node)
+        self.generic_visit(node)
 
 
 def python_files(repository: str, python_root: str) -> Sequence[str]:
@@ -108,9 +127,108 @@ class CheckReporterImportedVisitor(ast.NodeVisitor):
 def is_reporter_nakedly_imported(
     module: ast.Module, reporter_module_path: str, relative_imports: bool
 ) -> Tuple[bool, Optional[str]]:
+    """
+    Checks if a Humbug reporter has been imported at the top level of the given module (represented by its AST).
+
+    Return a pair of the form:
+    (
+        <boolean value representing whether or not the module contains a reporter import>,
+        <what the reporter was imported as>
+    )
+    """
     visitor = CheckReporterImportedVisitor(reporter_module_path, relative_imports)
     visitor.visit(module)
     return (visitor.reporter_nakedly_imported, visitor.reporter_imported_as)
+
+
+def ensure_reporter_nakedly_imported(
+    repository: str, python_root: str, submodule_path: str
+) -> Tuple[str, Optional[int]]:
+    """
+    Ensures that the given submodule of Python root has imported the Humbug reporter for the Python root.
+
+    If this method adds an import, it adds it as the last naked import in the submodule.
+
+    Returns a pair:
+    (
+        <name under which the reporter has been imported in the submodule>,
+        <ending line number of final naked import>
+    )
+    """
+    config_file = default_config_file(repository)
+    configuration = load_config(config_file).get(python_root)
+    if configuration is None:
+        raise GenerateReporterError(
+            f"Could not find Python root ({python_root}) in configuration file ({config_file})"
+        )
+
+    if configuration.reporter_filepath is None:
+        raise GenerateReporterError(
+            f"No reporter defined for project. Try running:\n\t$ infestor -r {repository} generate setup -P {python_root} -o report.py"
+        )
+    reporter_filepath = os.path.join(
+        repository, python_root, configuration.reporter_filepath
+    )
+
+    if not os.path.exists(submodule_path):
+        raise GenerateReporterError(f"No file at submodule_path: {submodule_path}")
+
+    module: Optional[ast.Module] = None
+    with open(submodule_path, "r") as ifp:
+        module = ast.parse(ifp.read())
+
+    final_import_end_lineno = last_naked_import_ending_line_number(module)
+
+    path_to_reporter_file = os.path.relpath(
+        os.path.join(repository, python_root, reporter_filepath),
+        os.path.dirname(submodule_path),
+    )
+    path_components: List[str] = []
+    current_path = path_to_reporter_file
+    while current_path:
+        current_path, base = os.path.split(current_path)
+        if base == os.path.basename(reporter_filepath):
+            base, _ = os.path.splitext(base)
+        path_components = [base] + path_components
+
+    source_lines: List[str] = []
+    with open(submodule_path, "r") as ifp:
+        for line in ifp:
+            source_lines.append(line)
+
+    new_code = ""
+    name: Optional[str] = None
+    if not configuration.relative_imports:
+        path_components = [os.path.basename(python_root)] + path_components
+        name = ".".join(path_components)
+        new_code = f"from {name} import reporter\n"
+    else:
+        name = "." + ".".join(path_components)
+        new_code = f"from {name} import reporter\n"
+
+    reporter_imported, reporter_imported_as = is_reporter_nakedly_imported(
+        module, name, configuration.relative_imports
+    )
+    if reporter_imported:
+        return (cast(str, reporter_imported_as), final_import_end_lineno)
+
+    if final_import_end_lineno is not None:
+        source_lines = (
+            source_lines[:final_import_end_lineno]
+            + [new_code]
+            + source_lines[final_import_end_lineno:]
+        )
+        final_import_end_lineno += 1
+    else:
+        source_lines.append(new_code)
+        final_import_end_lineno = len(source_lines)
+
+    with open(submodule_path, "w") as ofp:
+        for line in source_lines:
+            ofp.write(line)
+
+    # TODO(zomglings): Even the name under which reporter is imported should be parametrized!!
+    return ("reporter", final_import_end_lineno)
 
 
 def list_reporter_imports(
@@ -229,21 +347,6 @@ def add_call(
     2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
     3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
     """
-    config_file = default_config_file(repository)
-    configuration = load_config(config_file).get(python_root)
-    if configuration is None:
-        raise GenerateReporterError(
-            f"Could not find Python root ({python_root}) in configuration file ({config_file})"
-        )
-
-    if configuration.reporter_filepath is None:
-        raise GenerateReporterError(
-            f"No reporter defined for project. Try running:\n\t$ infestor -r {repository} generate setup -P {python_root} -o report.py"
-        )
-    reporter_filepath = os.path.join(
-        repository, python_root, configuration.reporter_filepath
-    )
-
     target_file = submodule_path
     if target_file is None:
         target_file = os.path.join(repository, python_root)
@@ -260,54 +363,21 @@ def add_call(
     if existing_calls:
         return
 
-    module: Optional[ast.Module] = None
-    with open(target_file, "r") as ifp:
-        module = ast.parse(ifp.read())
-
-    final_import_end_lineno = last_naked_import_ending_line_number(module)
-
-    # TODO(zomglings): Create an AST node which imports the reporter and runs reporter.system_report()
-    path_to_reporter_file = os.path.relpath(
-        os.path.join(repository, python_root, reporter_filepath),
-        os.path.dirname(target_file),
+    reporter_imported_as, final_import_end_lineno = ensure_reporter_nakedly_imported(
+        repository, python_root, target_file
     )
-    path_components: List[str] = []
-    current_path = path_to_reporter_file
-    while current_path:
-        current_path, base = os.path.split(current_path)
-        if base == os.path.basename(reporter_filepath):
-            base, _ = os.path.splitext(base)
-        path_components = [base] + path_components
 
     source_lines: List[str] = []
     with open(target_file, "r") as ifp:
         for line in ifp:
             source_lines.append(line)
 
-    new_code = ""
-    name: Optional[str] = None
-    if not configuration.relative_imports:
-        path_components = [os.path.basename(python_root)] + path_components
-        name = ".".join(path_components)
-        new_code = f"from {name} import reporter\nreporter.{call_type}()\n"
-    else:
-        name = "." + ".".join(path_components)
-        new_code = f"from {name} import reporter\nreporter.{call_type}()\n"
-
-    reporter_imported, reporter_imported_as = is_reporter_nakedly_imported(
-        module, name, configuration.relative_imports
+    new_code = f"{reporter_imported_as}.{call_type}()\n"
+    source_lines = (
+        source_lines[:final_import_end_lineno]
+        + [new_code]
+        + source_lines[final_import_end_lineno:]
     )
-    if reporter_imported and reporter_imported_as is not None:
-        new_code = f"{reporter_imported_as}.{call_type}()\n"
-
-    if final_import_end_lineno is not None:
-        source_lines = (
-            source_lines[:final_import_end_lineno]
-            + [new_code]
-            + source_lines[final_import_end_lineno:]
-        )
-    else:
-        source_lines.append(new_code)
 
     with open(target_file, "w") as ofp:
         for line in source_lines:
@@ -361,9 +431,247 @@ def remove_calls(
                 ofp.write("".join(new_lines))
 
 
-# TODO(zomglings): Use an Enum here.
-CALL_TYPE_SYSTEM_REPORT = "system_report"
-CALL_TYPE_SETUP_EXCEPTHOOK = "setup_excepthook"
+def list_decorators(
+    decorator_type: str,
+    repository: str,
+    python_root: str,
+    candidate_files: Optional[Sequence[str]] = None,
+    skip_reporter_check: bool = False,
+    complement: bool = False,
+) -> Dict[str, List[ast.FunctionDef]]:
+    """
+    Args:
+    0. decorator_type - Type of decorator to list in the given package (choices: "record_call", "record_error")
+    1. repository - Path to repository in which Infestor has been set up
+    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
+    3. candidate_files - Optional list of files to restrict analysis to
+
+    Returns a dictionary mapping file paths to functions defined in those files decorated by the given decorator_type method
+    on a managed Humbug reporter.
+    """
+    results: Dict[str, List[ast.FunctionDef]] = {}
+
+    files_to_check: Optional[Dict[str, ast.Module]] = None
+    if not skip_reporter_check:
+        files_to_check = list_reporter_imports(repository, python_root, candidate_files)
+    else:
+        files_to_check = {}
+        if candidate_files is not None:
+            for candidate_file in candidate_files:
+                with open(candidate_file, "r") as ifp:
+                    files_to_check[candidate_file] = ast.parse(ifp.read())
+
+    for candidate_file, module in files_to_check.items():
+        admissible_function_definitions: List[ast.FunctionDef] = []
+        visitor = FunctionDefVisitor()
+        visitor.visit(module)
+        for function_definition in visitor.function_definitions:
+            decorated = False
+            for decorator in function_definition.decorator_list:
+                # TODO(zomglings): Make this check more comprehensive (additionally using reporter_imported_as).
+                # After all, there could be another decorator with an attr value of record_call.
+                if (
+                    isinstance(decorator, ast.Attribute)
+                    and decorator.attr == decorator_type
+                ):
+                    decorated = True
+                    if not complement:
+                        admissible_function_definitions.append(function_definition)
+            if complement and not decorated:
+                admissible_function_definitions.append(function_definition)
+        if admissible_function_definitions:
+            results[candidate_file] = admissible_function_definitions
+
+    return results
+
+
+def decorator_candidates(
+    decorator_type: str,
+    repository: str,
+    python_root: str,
+    submodule_path: str,
+) -> List[ast.FunctionDef]:
+    """
+    Args:
+    0. decorator_type - Type of decorator to add to the given package (choices: "record_call", "record_error")
+    1. repository - Path to repository in which Infestor has been set up
+    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
+    3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+
+    Returns a list of tuples of the form:
+    (
+        <function name>,
+        <function definition starting line number>
+    )
+
+    This list is the list of candidate function definitions that the user could decorate (i.e. the ones which
+    do not already have a decorator of the given decorator_type).
+    """
+    wrapped_undecorated_function_definitions = list_decorators(
+        decorator_type,
+        repository,
+        python_root,
+        [submodule_path],
+        skip_reporter_check=True,
+        complement=True,
+    )
+    undecorated_function_definitions = wrapped_undecorated_function_definitions.get(
+        submodule_path, []
+    )
+    return undecorated_function_definitions
+
+
+def add_decorators(
+    decorator_type: str,
+    repository: str,
+    python_root: str,
+    submodule_path: str,
+    linenos: List[int],
+) -> None:
+    """
+    Args:
+    0. decorator_type - Type of decorator to add to the given package (choices: "record_call", "record_error")
+    1. repository - Path to repository in which Infestor has been set up
+    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
+    3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    4. linenos: Line numbers where functions are defined that we wish to decorate
+    """
+    candidate_function_definitions = decorator_candidates(
+        decorator_type, repository, python_root, submodule_path
+    )
+    candidate_linenos = {
+        function_definition.lineno
+        for function_definition in candidate_function_definitions
+    }
+    for lineno in linenos:
+        if lineno not in candidate_linenos:
+            raise GenerateDecoratorError(
+                f"Non-candidate source code: submodule_path={submodule_path}, lineno={lineno}"
+            )
+
+    reporter_imported_as, _ = ensure_reporter_nakedly_imported(
+        repository, python_root, submodule_path
+    )
+
+    chosen_function_definitions = [
+        function_definition
+        for function_definition in candidate_function_definitions
+        if function_definition.lineno in linenos
+    ]
+
+    chosen_function_definitions_with_boundary = [
+        (
+            function_definition,
+            min(
+                [
+                    function_definition.lineno,
+                    *[
+                        decorator.lineno
+                        for decorator in function_definition.decorator_list
+                    ],
+                ]
+            ),
+        )
+        for function_definition in chosen_function_definitions
+    ]
+    chosen_function_definitions_with_boundary.sort(key=lambda p: p[1])
+
+    source_lines: List[str] = []
+    with open(submodule_path, "r") as ifp:
+        for line in ifp:
+            source_lines.append(line)
+
+    new_source_lines: List[str] = []
+    sl_index = 0
+    fd_index = 0
+    for source_line in source_lines:
+        source_lineno = sl_index + 1
+        function_definition, boundary = chosen_function_definitions_with_boundary[
+            fd_index
+        ]
+        if source_lineno == boundary:
+            new_source_lines.append(
+                f"{' '*function_definition.col_offset}@{reporter_imported_as}.{decorator_type}\n"
+            )
+            fd_index += 1
+            if fd_index >= len(chosen_function_definitions_with_boundary):
+                break
+        new_source_lines.append(source_line)
+        sl_index += 1
+
+    new_source_lines.extend(source_lines[sl_index:])
+    with open(submodule_path, "w") as ofp:
+        for line in new_source_lines:
+            ofp.write(line)
+
+
+def remove_decorators(
+    decorator_type: str,
+    repository: str,
+    python_root: str,
+    submodule_path: str,
+    linenos: List[int],
+) -> None:
+    """
+    Args:
+    0. decorator_type - Type of decorator to remove from the given package (choices: "record_call", "record_error")
+    1. repository - Path to repository in which Infestor has been set up
+    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
+    3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    4. linenos: Line numbers where decorated functions are defined that we wish to undecorate
+    """
+    wrapped_function_definitions = list_decorators(
+        decorator_type, repository, python_root, [submodule_path]
+    )
+    decorated_functions = wrapped_function_definitions.get(submodule_path, [])
+    decorated_function_linenos = {
+        function_definition.lineno for function_definition in decorated_functions
+    }
+    for lineno in linenos:
+        if lineno not in decorated_function_linenos:
+            raise GenerateDecoratorError(
+                f"Could not undecorate invalid code at: submodule_path={submodule_path}, lineno={lineno}"
+            )
+
+    deletions: List[Tuple[int, Optional[int]]] = []
+    for function_definition in decorated_functions:
+        if function_definition.lineno in linenos:
+            for decorator in function_definition.decorator_list:
+                if (
+                    isinstance(decorator, ast.Attribute)
+                    and decorator.attr == decorator_type
+                ):
+                    deletions.append((decorator.lineno, decorator.end_lineno))
+
+    source_lines: List[str] = []
+    with open(submodule_path, "r") as ifp:
+        for line in ifp:
+            source_lines.append(line)
+
+    current_deletion = 0
+    sl_index = 0
+
+    new_source_lines: List[str] = []
+    capture = True
+
+    while current_deletion < len(deletions) and sl_index < len(source_lines):
+        current_deletion_start, current_deletion_end = deletions[current_deletion]
+        capture = not (
+            sl_index + 1 >= current_deletion_start
+            and (current_deletion_end is None or sl_index + 1 <= current_deletion_end)
+        )
+        if capture:
+            new_source_lines.append(source_lines[sl_index])
+
+        if sl_index == current_deletion_end:
+            current_deletion += 1
+
+        sl_index += 1
+
+    new_source_lines.extend(source_lines[sl_index:])
+    with open(submodule_path, "w") as ofp:
+        for line in new_source_lines:
+            ofp.write(line)
 
 
 def add_reporter(
