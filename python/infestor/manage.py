@@ -143,7 +143,7 @@ def is_reporter_nakedly_imported(
 
 def ensure_reporter_nakedly_imported(
     repository: str, python_root: str, submodule_path: str
-) -> Tuple[str, int]:
+) -> Tuple[str, Optional[int]]:
     """
     Ensures that the given submodule of Python root has imported the Humbug reporter for the Python root.
 
@@ -456,9 +456,10 @@ def list_decorators(
         files_to_check = list_reporter_imports(repository, python_root, candidate_files)
     else:
         files_to_check = {}
-        for candidate_file in candidate_files:
-            with open(candidate_file, "r") as ifp:
-                files_to_check[candidate_file] = ast.parse(ifp.read())
+        if candidate_files is not None:
+            for candidate_file in candidate_files:
+                with open(candidate_file, "r") as ifp:
+                    files_to_check[candidate_file] = ast.parse(ifp.read())
 
     for candidate_file, module in files_to_check.items():
         admissible_function_definitions: List[ast.FunctionDef] = []
