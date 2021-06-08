@@ -608,7 +608,8 @@ def remove_decorators(
     decorator_type: str,
     repository: str,
     python_root: str,
-    submodule_path: Optional[str] = None,
+    submodule_path: str,
+    linenos: List[int],
 ) -> None:
     """
     Args:
@@ -616,7 +617,60 @@ def remove_decorators(
     1. repository - Path to repository in which Infestor has been set up
     2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
     3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    4. linenos: Line numbers where decorated functions are defined that we wish to undecorate
     """
+    wrapped_function_definitions = list_decorators(
+        decorator_type, repository, python_root, [submodule_path]
+    )
+    decorated_functions = wrapped_function_definitions.get(submodule_path, [])
+    decorated_function_linenos = {
+        function_definition.lineno for function_definition in decorated_functions
+    }
+    for lineno in linenos:
+        if lineno not in decorated_function_linenos:
+            raise GenerateDecoratorError(
+                f"Could not undecorate invalid code at: submodule_path={submodule_path}, lineno={lineno}"
+            )
+
+    deletions: List[Tuple[int, Optional[int]]] = []
+    for function_definition in decorated_functions:
+        if function_definition.lineno in linenos:
+            for decorator in function_definition.decorator_list:
+                if (
+                    isinstance(decorator, ast.Attribute)
+                    and decorator.attr == decorator_type
+                ):
+                    deletions.append((decorator.lineno, decorator.end_lineno))
+
+    source_lines: List[str] = []
+    with open(submodule_path, "r") as ifp:
+        for line in ifp:
+            source_lines.append(line)
+
+    current_deletion = 0
+    sl_index = 0
+
+    new_source_lines: List[str] = []
+    capture = True
+
+    while current_deletion < len(deletions) and sl_index < len(source_lines):
+        current_deletion_start, current_deletion_end = deletions[current_deletion]
+        capture = not (
+            sl_index + 1 >= current_deletion_start
+            and (current_deletion_end is None or sl_index + 1 <= current_deletion_end)
+        )
+        if capture:
+            new_source_lines.append(source_lines[sl_index])
+
+        if sl_index == current_deletion_end:
+            current_deletion += 1
+
+        sl_index += 1
+
+    new_source_lines.extend(source_lines[sl_index:])
+    with open(submodule_path, "w") as ofp:
+        for line in new_source_lines:
+            ofp.write(line)
 
 
 def add_reporter(

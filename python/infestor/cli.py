@@ -126,7 +126,9 @@ def generate_decorator_handlers(
         for filepath, function_definitions in results.items():
             print(f"Lines in {filepath}:")
             for decorated_function in function_definitions:
-                print(f"\t- {decorated_function.lineno}")
+                print(
+                    f"\t- (line {decorated_function.lineno}) {decorated_function.name}"
+                )
 
     def handle_candidates(args: argparse.Namespace) -> None:
         results = manage.decorator_candidates(
@@ -146,7 +148,13 @@ def generate_decorator_handlers(
         )
 
     def handle_remove(args: argparse.Namespace) -> None:
-        pass
+        manage.remove_decorators(
+            decorator_type,
+            args.repository,
+            args.python_root,
+            args.submodule,
+            args.lines,
+        )
 
     return (handle_list, handle_candidates, handle_add, handle_remove)
 
@@ -386,6 +394,18 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         description="List all functions/methods which are currently being recorded",
     )
     populate_leaf_parser_with_common_args(record_call_remove_parser)
+    record_call_remove_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_call_remove_parser.add_argument(
+        "lines",
+        type=int,
+        nargs="+",
+        help="Line numbers of function definitions to decorate",
+    )
     record_call_remove_parser.set_defaults(func=handle_record_call_remove)
 
     return parser
