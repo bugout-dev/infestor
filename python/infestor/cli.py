@@ -120,7 +120,13 @@ def generate_decorator_handlers(
     """
 
     def handle_list(args: argparse.Namespace) -> None:
-        pass
+        results = manage.list_decorators(
+            decorator_type, args.repository, args.python_root
+        )
+        for filepath, function_definitions in results.items():
+            print(f"Lines in {filepath}:")
+            for decorated_function in function_definitions:
+                print(f"\t- {decorated_function.lineno}")
 
     def handle_add(args: argparse.Namespace) -> None:
         pass
@@ -315,12 +321,11 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     record_call_parser.set_defaults(func=lambda _: record_call_parser.print_help())
     record_call_subcommands = record_call_parser.add_subparsers()
 
-    # TODO(zomglings): Replace "record_call" literal with a constant defined in manage.py.
     (
         handle_record_call_list,
         handle_record_call_add,
         handle_record_call_remove,
-    ) = generate_decorator_handlers("record_call")
+    ) = generate_decorator_handlers(manage.DECORATOR_TYPE_RECORD_CALL)
 
     record_call_list_parser = record_call_subcommands.add_parser(
         "list",
