@@ -1,3 +1,7 @@
 #!/usr/bin/env sh
 
-python -m unittest discover "$@"
+ARGS="$@"
+
+[ -z "$ARGS" ] && ARGS="discover"
+
+python -m unittest "$ARGS"

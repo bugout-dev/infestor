@@ -36,13 +36,12 @@ class TestSetupReporter(unittest.TestCase):
         self.reporter_token = str(uuid.uuid4())
 
         config.initialize(
-            self.repository,
             self.package_dir,
             self.package_name,
             reporter_token=self.reporter_token,
         )
 
-        self.config_file = config.default_config_file(self.repository)
+        self.config_file = config.default_config_file(self.package_dir)
 
         package_files = [
             os.path.relpath(python_file, start=self.repository)
@@ -51,7 +50,11 @@ class TestSetupReporter(unittest.TestCase):
         commit.commit_files(
             self.repository,
             "refs/heads/master",
-            [script_basename, *package_files, config.CONFIG_FILENAME],
+            [
+                script_basename,
+                *package_files,
+                os.path.join(package_basename, config.CONFIG_FILENAME),
+            ],
             "initial commit",
         )
 
@@ -78,18 +81,16 @@ class TestSetupReporter(unittest.TestCase):
         #    e. Instantiation of HumbugReporter with the configured token as an argument
         with open(self.config_file, "r") as ifp:
             infestor_json_old = json.load(ifp)
-        self.assertIsNone(infestor_json_old[self.package_name]["reporter_filepath"])
+        self.assertIsNone(infestor_json_old["reporter_filepath"])
 
-        reporter_filepath = os.path.join(self.repository, self.package_dir, "report.py")
+        reporter_filepath = os.path.join(self.package_dir, "report.py")
         self.assertFalse(os.path.exists(reporter_filepath))
 
-        manage.add_reporter(self.repository, self.package_dir)
+        manage.add_reporter(self.package_dir)
 
         with open(self.config_file, "r") as ifp:
             infestor_json_new = json.load(ifp)
-        self.assertEqual(
-            infestor_json_new[self.package_name]["reporter_filepath"], "report.py"
-        )
+        self.assertEqual(infestor_json_new["reporter_filepath"], "report.py")
         self.assertTrue(os.path.exists(reporter_filepath))
 
         with open(reporter_filepath, "r") as ifp:
@@ -178,25 +179,20 @@ class TestSetupReporter(unittest.TestCase):
         )
         self.assertEqual(
             visitor.HumbugReporterTokenArgument,
-            f"\"{infestor_json_new[self.package_name]['reporter_token']}\"",
+            f"\"{infestor_json_new['reporter_token']}\"",
         )
 
     def test_system_report_add_with_no_reporter_added(self):
         with self.assertRaises(manage.GenerateReporterError):
             manage.add_call(
                 manage.CALL_TYPE_SYSTEM_REPORT,
-                self.repository,
-                os.path.relpath(self.package_dir, self.repository),
+                self.package_dir,
             )
 
     def test_list_system_reports_for_package_with_no_system_reports(self):
-        config.initialize(
-            self.repository, self.package_dir, os.path.basename(self.package_dir)
-        )
         results = manage.list_calls(
             manage.CALL_TYPE_SYSTEM_REPORT,
-            self.repository,
-            os.path.basename(self.package_dir),
+            self.package_dir,
         )
         self.assertDictEqual(results, {})
 

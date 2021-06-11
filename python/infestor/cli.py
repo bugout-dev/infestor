@@ -14,7 +14,6 @@ CLIHandler = Callable[[argparse.Namespace], None]
 def handle_config_init(args: argparse.Namespace) -> None:
     config.initialize(
         args.repository,
-        args.python_root,
         args.name,
         args.relative_imports,
         args.reporter_token,
@@ -50,21 +49,15 @@ def handle_config_validate(args: argparse.Namespace) -> None:
 
 def handle_config_token(args: argparse.Namespace) -> None:
     config_file = config.default_config_file(args.repository)
-    python_root = config.python_root_relative_to_repository_root(
-        args.repository, args.python_root
-    )
-
     config_object = config.set_reporter_token(
         config_file,
-        python_root,
         args.token,
     )
 
-    if config_object[python_root].reporter_filepath is not None:
+    if config_object.reporter_filepath is not None:
         manage.add_reporter(
             args.repository,
-            python_root,
-            config_object[python_root].reporter_filepath,
+            config_object.reporter_filepath,
             force=True,
         )
 
@@ -72,9 +65,7 @@ def handle_config_token(args: argparse.Namespace) -> None:
 
 
 def handle_reporter_add(args: argparse.Namespace) -> None:
-    manage.add_reporter(
-        args.repository, args.python_root, args.reporter_filepath, args.force
-    )
+    manage.add_reporter(args.repository, args.reporter_filepath, args.force)
 
 
 def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIHandler]:
@@ -84,7 +75,7 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
     """
 
     def handle_list(args: argparse.Namespace) -> None:
-        results = manage.list_calls(call_type, args.repository, args.python_root)
+        results = manage.list_calls(call_type, args.repository)
         for filepath, calls in results.items():
             print(f"Lines in {filepath}:")
             for report_call in calls:
@@ -93,20 +84,16 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
     def handle_add(args: argparse.Namespace) -> None:
         # TODO(zomglings): Is there a better way to check if an argparse.Namespace has a given member?
         if vars(args).get("submodule") is not None:
-            manage.add_call(
-                call_type, args.repository, args.python_root, args.submodule
-            )
+            manage.add_call(call_type, args.repository, args.submodule)
         else:
-            manage.add_call(call_type, args.repository, args.python_root)
+            manage.add_call(call_type, args.repository)
 
     def handle_remove(args: argparse.Namespace) -> None:
         # TODO(zomglings): Ditto
         if vars(args).get("submodule") is not None:
-            manage.remove_calls(
-                call_type, args.repository, args.python_root, args.submodule
-            )
+            manage.remove_calls(call_type, args.repository, args.submodule)
         else:
-            manage.remove_calls(call_type, args.repository, args.python_root)
+            manage.remove_calls(call_type, args.repository)
 
     return (handle_list, handle_add, handle_remove)
 
@@ -120,9 +107,7 @@ def generate_decorator_handlers(
     """
 
     def handle_list(args: argparse.Namespace) -> None:
-        results = manage.list_decorators(
-            decorator_type, args.repository, args.python_root
-        )
+        results = manage.list_decorators(decorator_type, args.repository)
         for filepath, function_definitions in results.items():
             print(f"Lines in {filepath}:")
             for decorated_function in function_definitions:
@@ -132,7 +117,7 @@ def generate_decorator_handlers(
 
     def handle_candidates(args: argparse.Namespace) -> None:
         results = manage.decorator_candidates(
-            decorator_type, args.repository, args.python_root, args.submodule
+            decorator_type, args.repository, args.submodule
         )
         print(f"You can add the {decorator_type} decorator to the following functions:")
         for function_definition in results:
@@ -142,7 +127,6 @@ def generate_decorator_handlers(
         manage.add_decorators(
             decorator_type,
             args.repository,
-            args.python_root,
             args.submodule,
             args.lines,
         )
@@ -151,7 +135,6 @@ def generate_decorator_handlers(
         manage.remove_decorators(
             decorator_type,
             args.repository,
-            args.python_root,
             args.submodule,
             args.lines,
         )
@@ -170,26 +153,13 @@ def generate_argument_parser() -> argparse.ArgumentParser:
 
     def populate_leaf_parser_with_common_args(
         leaf_parser: argparse.ArgumentParser,
-        repository: bool = True,
-        python_root: bool = True,
     ) -> None:
-        if repository:
-            leaf_parser.add_argument(
-                "-r",
-                "--repository",
-                default=current_working_directory,
-                help=f"Path to git repository containing your code base (default: {current_working_directory})",
-            )
-        if python_root:
-            leaf_parser.add_argument(
-                "-P",
-                "--python-root",
-                required=True,
-                help=(
-                    "Root directory for Python code/module in the repository. If you are integrating with "
-                    "a module, this will be the highest-level directory with an __init__.py file in it."
-                ),
-            )
+        leaf_parser.add_argument(
+            "-r",
+            "--repository",
+            default=current_working_directory,
+            help=f"Path to git repository containing your code base (default: {current_working_directory})",
+        )
 
     config_parser = subcommands.add_parser(
         "config", description="Manage infestor configuration"
@@ -223,7 +193,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     config_validate_parser = config_subcommands.add_parser(
         "validate", description="Validate an Infestor configuration"
     )
-    populate_leaf_parser_with_common_args(config_validate_parser, python_root=False)
+    populate_leaf_parser_with_common_args(config_validate_parser)
     config_validate_parser.set_defaults(func=handle_config_validate)
 
     config_token_parser = config_subcommands.add_parser(

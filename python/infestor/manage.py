@@ -53,13 +53,12 @@ class FunctionDefVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def python_files(repository: str, python_root: str) -> Sequence[str]:
+def python_files(repository: str) -> Sequence[str]:
     results: List[str] = []
-    root = os.path.join(repository, python_root)
-    if os.path.isfile(root):
-        return [root]
+    if os.path.isfile(repository):
+        return [repository]
 
-    for dirpath, _, filenames in os.walk(root, topdown=True):
+    for dirpath, _, filenames in os.walk(repository, topdown=True):
         results.extend(
             [
                 os.path.join(dirpath, filename)
@@ -142,10 +141,10 @@ def is_reporter_nakedly_imported(
 
 
 def ensure_reporter_nakedly_imported(
-    repository: str, python_root: str, submodule_path: str
+    repository: str, submodule_path: str
 ) -> Tuple[str, Optional[int]]:
     """
-    Ensures that the given submodule of Python root has imported the Humbug reporter for the Python root.
+    Ensures that the given submodule has imported the Humbug reporter.
 
     If this method adds an import, it adds it as the last naked import in the submodule.
 
@@ -156,19 +155,17 @@ def ensure_reporter_nakedly_imported(
     )
     """
     config_file = default_config_file(repository)
-    configuration = load_config(config_file).get(python_root)
+    configuration = load_config(config_file)
     if configuration is None:
         raise GenerateReporterError(
-            f"Could not find Python root ({python_root}) in configuration file ({config_file})"
+            f"Could not load configuration from file ({config_file})"
         )
 
     if configuration.reporter_filepath is None:
         raise GenerateReporterError(
-            f"No reporter defined for project. Try running:\n\t$ infestor -r {repository} generate setup -P {python_root} -o report.py"
+            f"No reporter defined for project. Try running:\n\t$ infestor -r {repository} generate setup -o report.py"
         )
-    reporter_filepath = os.path.join(
-        repository, python_root, configuration.reporter_filepath
-    )
+    reporter_filepath = os.path.join(repository, configuration.reporter_filepath)
 
     if not os.path.exists(submodule_path):
         raise GenerateReporterError(f"No file at submodule_path: {submodule_path}")
@@ -180,7 +177,7 @@ def ensure_reporter_nakedly_imported(
     final_import_end_lineno = last_naked_import_ending_line_number(module)
 
     path_to_reporter_file = os.path.relpath(
-        os.path.join(repository, python_root, reporter_filepath),
+        os.path.join(repository, reporter_filepath),
         os.path.dirname(submodule_path),
     )
     path_components: List[str] = []
@@ -199,7 +196,7 @@ def ensure_reporter_nakedly_imported(
     new_code = ""
     name: Optional[str] = None
     if not configuration.relative_imports:
-        path_components = [os.path.basename(python_root)] + path_components
+        path_components = [os.path.basename(repository)] + path_components
         name = ".".join(path_components)
         new_code = f"from {name} import reporter\n"
     else:
@@ -232,21 +229,20 @@ def ensure_reporter_nakedly_imported(
 
 
 def list_reporter_imports(
-    repository: str, python_root: str, candidate_files: Optional[Sequence[str]] = None
+    repository: str, candidate_files: Optional[Sequence[str]] = None
 ) -> Dict[str, ast.Module]:
     """
     Args:
     1. repository - Path to repository in which Infestor has been set up
-    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
-    3. candidate_files - Optional list of files to restrict analysis to
+    2. candidate_files - Optional list of files to restrict analysis to
     """
     results: Dict[str, ast.Module] = {}
 
     config_file = default_config_file(repository)
-    configuration = load_config(config_file).get(python_root)
+    configuration = load_config(config_file)
     if configuration is None:
         raise GenerateReporterError(
-            f"Could not find Python root ({python_root}) in configuration file ({config_file})"
+            f"Could not load configuration from file ({config_file})"
         )
 
     if configuration.reporter_filepath is None:
@@ -254,7 +250,7 @@ def list_reporter_imports(
         return results
 
     # Until the end of the loop, this is reversed
-    reporter_filepath = os.path.join(python_root, configuration.reporter_filepath)
+    reporter_filepath = configuration.reporter_filepath
     dirname, basename = os.path.split(reporter_filepath)
     base_module, _ = os.path.splitext(basename)
     reporter_module_components: List[str] = [base_module]
@@ -269,7 +265,7 @@ def list_reporter_imports(
     reporter_module = ".".join(reporter_module_components)
 
     if candidate_files is None:
-        candidate_files = python_files(repository, python_root)
+        candidate_files = python_files(repository)
 
     for candidate_file in candidate_files:
         module: Optional[ast.Module] = None
@@ -284,7 +280,7 @@ def list_reporter_imports(
             elif isinstance(statement, ast.ImportFrom):
                 module_name = f"{'.'*statement.level}{statement.module}"
                 qualified_module_name = importlib.util.resolve_name(
-                    module_name, python_root
+                    module_name, repository
                 )
                 if qualified_module_name == reporter_module:
                     results[candidate_file] = module
@@ -295,20 +291,16 @@ def list_reporter_imports(
 def list_calls(
     call_type: str,
     repository: str,
-    python_root: str,
     candidate_files: Optional[Sequence[str]] = None,
 ) -> Dict[str, List[ast.Call]]:
     """
     Args:
     0. call_type - Type of call to list in the given package (e.g. "system_report", "setup_excepthook", etc.)
     1. repository - Path to repository in which Infestor has been set up
-    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
-    3. candidate_files - Optional list of files to restrict analysis to
+    2. candidate_files - Optional list of files to restrict analysis to
     """
     results: Dict[str, List[ast.Call]] = {}
-    files_with_reporter = list_reporter_imports(
-        repository, python_root, candidate_files
-    )
+    files_with_reporter = list_reporter_imports(repository, candidate_files)
 
     call_logger = CallVisitor()
     for filepath, file_ast in files_with_reporter.items():
@@ -337,19 +329,17 @@ def list_calls(
 def add_call(
     call_type: str,
     repository: str,
-    python_root: str,
     submodule_path: Optional[str] = None,
 ) -> None:
     """
     Args:
     0. call_type - Type of call to add to the given package (e.g. "system_report", "setup_excepthook", etc.)
     1. repository - Path to repository in which Infestor has been set up
-    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
-    3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
     """
     target_file = submodule_path
     if target_file is None:
-        target_file = os.path.join(repository, python_root)
+        target_file = repository
         if os.path.isdir(target_file):
             target_file = os.path.join(target_file, "__init__.py")
 
@@ -357,14 +347,12 @@ def add_call(
         with open(target_file, "w") as ofp:
             ofp.write("")
 
-    existing_calls = list_calls(
-        call_type, repository, python_root, candidate_files=[target_file]
-    )
+    existing_calls = list_calls(call_type, repository, candidate_files=[target_file])
     if existing_calls:
         return
 
     reporter_imported_as, final_import_end_lineno = ensure_reporter_nakedly_imported(
-        repository, python_root, target_file
+        repository, target_file
     )
 
     source_lines: List[str] = []
@@ -387,24 +375,20 @@ def add_call(
 def remove_calls(
     call_type: str,
     repository: str,
-    python_root: str,
     submodule_path: Optional[str] = None,
 ) -> None:
     """
     Args:
     0. call_type - Type of call to remove from the given package (e.g. "system_report", "setup_excepthook", etc.)
     1. repository - Path to repository in which Infestor has been set up
-    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
-    3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
     """
     candidate_files: Sequence[Optional[str]] = [submodule_path]
     if submodule_path is None:
-        candidate_files = python_files(repository, python_root)
+        candidate_files = python_files(repository)
     candidate_files = cast(Sequence[str], candidate_files)
 
-    system_report_calls = list_calls(
-        call_type, repository, python_root, candidate_files
-    )
+    system_report_calls = list_calls(call_type, repository, candidate_files)
 
     for filepath, calls in system_report_calls.items():
         deletions: List[Tuple[int, Optional[int]]] = [
@@ -434,7 +418,6 @@ def remove_calls(
 def list_decorators(
     decorator_type: str,
     repository: str,
-    python_root: str,
     candidate_files: Optional[Sequence[str]] = None,
     skip_reporter_check: bool = False,
     complement: bool = False,
@@ -453,7 +436,7 @@ def list_decorators(
 
     files_to_check: Optional[Dict[str, ast.Module]] = None
     if not skip_reporter_check:
-        files_to_check = list_reporter_imports(repository, python_root, candidate_files)
+        files_to_check = list_reporter_imports(repository, candidate_files)
     else:
         files_to_check = {}
         if candidate_files is not None:
@@ -488,15 +471,13 @@ def list_decorators(
 def decorator_candidates(
     decorator_type: str,
     repository: str,
-    python_root: str,
     submodule_path: str,
 ) -> List[ast.FunctionDef]:
     """
     Args:
     0. decorator_type - Type of decorator to add to the given package (choices: "record_call", "record_error")
     1. repository - Path to repository in which Infestor has been set up
-    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
-    3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
 
     Returns a list of tuples of the form:
     (
@@ -510,7 +491,6 @@ def decorator_candidates(
     wrapped_undecorated_function_definitions = list_decorators(
         decorator_type,
         repository,
-        python_root,
         [submodule_path],
         skip_reporter_check=True,
         complement=True,
@@ -524,7 +504,6 @@ def decorator_candidates(
 def add_decorators(
     decorator_type: str,
     repository: str,
-    python_root: str,
     submodule_path: str,
     linenos: List[int],
 ) -> None:
@@ -532,12 +511,11 @@ def add_decorators(
     Args:
     0. decorator_type - Type of decorator to add to the given package (choices: "record_call", "record_error")
     1. repository - Path to repository in which Infestor has been set up
-    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
-    3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
-    4. linenos: Line numbers where functions are defined that we wish to decorate
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    3. linenos: Line numbers where functions are defined that we wish to decorate
     """
     candidate_function_definitions = decorator_candidates(
-        decorator_type, repository, python_root, submodule_path
+        decorator_type, repository, submodule_path
     )
     candidate_linenos = {
         function_definition.lineno
@@ -550,7 +528,7 @@ def add_decorators(
             )
 
     reporter_imported_as, _ = ensure_reporter_nakedly_imported(
-        repository, python_root, submodule_path
+        repository, submodule_path
     )
 
     chosen_function_definitions = [
@@ -608,7 +586,6 @@ def add_decorators(
 def remove_decorators(
     decorator_type: str,
     repository: str,
-    python_root: str,
     submodule_path: str,
     linenos: List[int],
 ) -> None:
@@ -616,12 +593,11 @@ def remove_decorators(
     Args:
     0. decorator_type - Type of decorator to remove from the given package (choices: "record_call", "record_error")
     1. repository - Path to repository in which Infestor has been set up
-    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
-    3. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
-    4. linenos: Line numbers where decorated functions are defined that we wish to undecorate
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    3. linenos: Line numbers where decorated functions are defined that we wish to undecorate
     """
     wrapped_function_definitions = list_decorators(
-        decorator_type, repository, python_root, [submodule_path]
+        decorator_type, repository, [submodule_path]
     )
     decorated_functions = wrapped_function_definitions.get(submodule_path, [])
     decorated_function_linenos = {
@@ -676,7 +652,6 @@ def remove_decorators(
 
 def add_reporter(
     repository: str,
-    python_root: str,
     reporter_filepath: Optional[str] = None,
     force: bool = False,
 ) -> None:
@@ -684,16 +659,7 @@ def add_reporter(
         raise GenerateReporterError("Could not load reporter template file")
 
     config_file = default_config_file(repository)
-    configurations_by_python_root = load_config(config_file)
-    normalized_python_root = python_root_relative_to_repository_root(
-        repository, python_root
-    )
-
-    configuration = configurations_by_python_root.get(normalized_python_root)
-    if configuration is None:
-        raise GenerateReporterError(
-            f"Could not find configuration for python root ({python_root}) in config file ({config_file})"
-        )
+    configuration = load_config(config_file)
 
     if reporter_filepath is None:
         if configuration.reporter_filepath is not None:
@@ -709,9 +675,7 @@ def add_reporter(
                 f"Configuration expects reporter to be set up at a different file than the one specified; specified={reporter_filepath}, expected={configuration.reporter_filepath}"
             )
 
-    reporter_filepath_full = os.path.join(
-        repository, configuration.python_root, reporter_filepath
-    )
+    reporter_filepath_full = os.path.join(repository, reporter_filepath)
     if (not force) and os.path.exists(reporter_filepath_full):
         raise GenerateReporterError(
             f"Object already exists at desired reporter filepath: {reporter_filepath_full}"
