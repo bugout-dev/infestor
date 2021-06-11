@@ -11,7 +11,7 @@ from atomicwrites import atomic_write
 from .version import INFESTOR_VERSION
 
 
-CONFIG_FILENAME = "infestor.json"
+CONFIG_FILENAME = "humbug.json"
 
 
 @dataclass
