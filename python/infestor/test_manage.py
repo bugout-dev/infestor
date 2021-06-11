@@ -181,6 +181,14 @@ class TestSetupReporter(unittest.TestCase):
             f"\"{infestor_json_new[self.package_name]['reporter_token']}\"",
         )
 
+    def test_system_report_add_with_no_reporter_added(self):
+        with self.assertRaises(manage.GenerateReporterError):
+            manage.add_call(
+                manage.CALL_TYPE_SYSTEM_REPORT,
+                self.repository,
+                os.path.relpath(self.package_dir, self.repository),
+            )
+
     def test_list_system_reports_for_package_with_no_system_reports(self):
         config.initialize(
             self.repository, self.package_dir, os.path.basename(self.package_dir)
