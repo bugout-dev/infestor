@@ -14,6 +14,104 @@ import pygit2
 from . import commit, config, manage
 
 
+class ReporterFileVisitor(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
+
+    def __init__(self):
+        self.HumbugConsentImportedAs: str = ""
+        self.HumbugConsentImportedAt: int = -1
+        self.HumbugReporterImportedAs: str = ""
+        self.HumbugReporterImportedAt: int = -1
+        self.HumbugConsentInstantiatedAt: int = -1
+        self.HumbugConsentInstantiatedAs: str = ""
+        self.HumbugReporterInstantiatedAt: int = -1
+        self.HumbugReporterConsentArgument: str = ""
+        self.HumbugReporterTokenArgument: str = ""
+
+    def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
+        position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
+        if (
+            isinstance(node.module, cst.Attribute)
+            and isinstance(node.module.value, cst.Name)
+            and node.module.value.value == "humbug"
+        ):
+            if node.module.attr.value == "consent" and not isinstance(
+                node.names, cst.ImportStar
+            ):
+                for name in node.names:
+                    if name.name.value == "HumbugConsent":
+                        self.HumbugConsentImportedAs = "HumbugConsent"
+
+                        if name.asname is not None and isinstance(
+                            name.asname, cst.Name
+                        ):
+                            self.HumbugConsentImportedAs = name.asname.value
+
+                        self.HumbugConsentImportedAt = position.start.line
+            elif node.module.attr.value == "report" and not isinstance(
+                node.names, cst.ImportStar
+            ):
+                for name in node.names:
+                    if name.name.value == "HumbugReporter":
+                        self.HumbugReporterImportedAs = "HumbugReporter"
+
+                        if name.asname is not None and isinstance(
+                            name.asname, cst.Name
+                        ):
+                            self.HumbugReporterImportedAs = name.asname.value
+
+                        self.HumbugReporterImportedAt = position.start.line
+
+        return False
+
+    def visit_Assign(self, node: cst.Assign) -> Optional[bool]:
+        # TODO: come back
+        if (
+            len(node.targets) == 1
+            and isinstance(node.value, cst.Call)
+            and isinstance(node.value.func, cst.Name)
+            and isinstance(node.targets[0].target, cst.Name)
+            and node.value.func.value == self.HumbugConsentImportedAs
+        ):
+            position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
+            self.HumbugConsentInstantiatedAt = position.start.line
+            self.HumbugConsentInstantiatedAs = node.targets[0].target.value
+            return False
+        return True
+
+    def visit_Call(self, node: cst.Call) -> Optional[bool]:
+        if (
+            isinstance(node.func, cst.Name)
+            and node.func.value == self.HumbugReporterImportedAs
+        ):
+            position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
+            self.HumbugReporterInstantiatedAt = position.start.line
+            for arg in node.args:
+                if (
+                    arg.keyword is not None
+                    and arg.keyword.value == "consent"
+                    and isinstance(arg.value, cst.Name)
+                ):
+                    self.HumbugReporterConsentArgument = arg.value.value
+                elif (
+                    arg.keyword is not None
+                    and arg.keyword.value == "bugout_token"
+                    and isinstance(arg.value, cst.SimpleString)
+                ):
+                    self.HumbugReporterTokenArgument = arg.value.value
+        return False
+
+
+class PackageFileVisitor(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
+
+    def __init__(self):
+        self.ReporterImportedAs: str = ""
+        self.ReporterImportedAt: int = -1
+        self.ReporterSystemCallAt: int = -1
+        self.ReporterExcepthookAt: int = -1
+
+
 class TestSetupReporter(unittest.TestCase):
     def setUp(self):
         self.repository = tempfile.mkdtemp()
@@ -96,94 +194,7 @@ class TestSetupReporter(unittest.TestCase):
         with open(reporter_filepath, "r") as ifp:
             reporter_source = cst.metadata.MetadataWrapper(cst.parse_module(ifp.read()))
 
-        class TestVisitor(cst.CSTVisitor):
-            METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
-
-            def __init__(self):
-                self.HumbugConsentImportedAs: str = ""
-                self.HumbugConsentImportedAt: int = -1
-                self.HumbugReporterImportedAs: str = ""
-                self.HumbugReporterImportedAt: int = -1
-                self.HumbugConsentInstantiatedAt: int = -1
-                self.HumbugConsentInstantiatedAs: str = ""
-                self.HumbugReporterInstantiatedAt: int = -1
-                self.HumbugReporterConsentArgument: str = ""
-                self.HumbugReporterTokenArgument: str = ""
-
-            def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
-                position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
-                if (
-                    isinstance(node.module, cst.Attribute)
-                    and isinstance(node.module.value, cst.Name)
-                    and node.module.value.value == "humbug"
-                ):
-                    if node.module.attr.value == "consent" and not isinstance(
-                        node.names, cst.ImportStar
-                    ):
-                        for name in node.names:
-                            if name.name.value == "HumbugConsent":
-                                self.HumbugConsentImportedAs = "HumbugConsent"
-
-                                if name.asname is not None and isinstance(
-                                    name.asname, cst.Name
-                                ):
-                                    self.HumbugConsentImportedAs = name.asname.value
-
-                                self.HumbugConsentImportedAt = position.start.line
-                    elif node.module.attr.value == "report" and not isinstance(
-                        node.names, cst.ImportStar
-                    ):
-                        for name in node.names:
-                            if name.name.value == "HumbugReporter":
-                                self.HumbugReporterImportedAs = "HumbugReporter"
-
-                                if name.asname is not None and isinstance(
-                                    name.asname, cst.Name
-                                ):
-                                    self.HumbugReporterImportedAs = name.asname.value
-
-                                self.HumbugReporterImportedAt = position.start.line
-
-                return False
-
-            def visit_Assign(self, node: cst.Assign) -> Optional[bool]:
-                # TODO: come back
-                if (
-                    len(node.targets) == 1
-                    and isinstance(node.value, cst.Call)
-                    and isinstance(node.value.func, cst.Name)
-                    and isinstance(node.targets[0].target, cst.Name)
-                    and node.value.func.value == self.HumbugConsentImportedAs
-                ):
-                    position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
-                    self.HumbugConsentInstantiatedAt = position.start.line
-                    self.HumbugConsentInstantiatedAs = node.targets[0].target.value
-                    return False
-                return True
-
-            def visit_Call(self, node: cst.Call) -> Optional[bool]:
-                if (
-                    isinstance(node.func, cst.Name)
-                    and node.func.value == self.HumbugReporterImportedAs
-                ):
-                    position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
-                    self.HumbugReporterInstantiatedAt = position.start.line
-                    for arg in node.args:
-                        if (
-                            arg.keyword is not None
-                            and arg.keyword.value == "consent"
-                            and isinstance(arg.value, cst.Name)
-                        ):
-                            self.HumbugReporterConsentArgument = arg.value.value
-                        elif (
-                            arg.keyword is not None
-                            and arg.keyword.value == "bugout_token"
-                            and isinstance(arg.value, cst.SimpleString)
-                        ):
-                            self.HumbugReporterTokenArgument = arg.value.value
-                return False
-
-        visitor = TestVisitor()
+        visitor = ReporterFileVisitor()
         reporter_source.visit(visitor)
 
         self.assertEqual(visitor.HumbugConsentImportedAs, "HumbugConsent")
@@ -214,6 +225,10 @@ class TestSetupReporter(unittest.TestCase):
             self.package_dir,
         )
         self.assertDictEqual(results, {})
+
+    def test_system_report_add(self):
+        manage.add_reporter(self.package_dir)
+        manage.add_call(manage.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
 
 
 if __name__ == "__main__":
