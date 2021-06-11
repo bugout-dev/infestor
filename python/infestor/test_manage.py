@@ -4,7 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import Optional
+from typing import Optional, Sequence
 import unittest
 import uuid
 
@@ -111,26 +111,35 @@ class TestSetupReporter(unittest.TestCase):
                 self.HumbugReporterTokenArgument: str = ""
 
             def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
-                position = self.get_metadata(cst.metadata.PositionProvider, node)
+                position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
                 if (
                     isinstance(node.module, cst.Attribute)
+                    and isinstance(node.module.value, cst.Name)
                     and node.module.value.value == "humbug"
                 ):
-                    if node.module.attr.value == "consent":
+                    if node.module.attr.value == "consent" and not isinstance(
+                        node.names, cst.ImportStar
+                    ):
                         for name in node.names:
                             if name.name.value == "HumbugConsent":
                                 self.HumbugConsentImportedAs = "HumbugConsent"
 
-                                if name.asname is not None:
+                                if name.asname is not None and isinstance(
+                                    name.asname, cst.Name
+                                ):
                                     self.HumbugConsentImportedAs = name.asname.value
 
                                 self.HumbugConsentImportedAt = position.start.line
-                    elif node.module.attr.value == "report":
+                    elif node.module.attr.value == "report" and not isinstance(
+                        node.names, cst.ImportStar
+                    ):
                         for name in node.names:
                             if name.name.value == "HumbugReporter":
                                 self.HumbugReporterImportedAs = "HumbugReporter"
 
-                                if name.asname is not None:
+                                if name.asname is not None and isinstance(
+                                    name.asname, cst.Name
+                                ):
                                     self.HumbugReporterImportedAs = name.asname.value
 
                                 self.HumbugReporterImportedAt = position.start.line
@@ -142,9 +151,11 @@ class TestSetupReporter(unittest.TestCase):
                 if (
                     len(node.targets) == 1
                     and isinstance(node.value, cst.Call)
+                    and isinstance(node.value.func, cst.Name)
+                    and isinstance(node.targets[0].target, cst.Name)
                     and node.value.func.value == self.HumbugConsentImportedAs
                 ):
-                    position = self.get_metadata(cst.metadata.PositionProvider, node)
+                    position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
                     self.HumbugConsentInstantiatedAt = position.start.line
                     self.HumbugConsentInstantiatedAs = node.targets[0].target.value
                     return False
@@ -155,12 +166,20 @@ class TestSetupReporter(unittest.TestCase):
                     isinstance(node.func, cst.Name)
                     and node.func.value == self.HumbugReporterImportedAs
                 ):
-                    position = self.get_metadata(cst.metadata.PositionProvider, node)
+                    position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
                     self.HumbugReporterInstantiatedAt = position.start.line
                     for arg in node.args:
-                        if arg.keyword.value == "consent":
+                        if (
+                            arg.keyword is not None
+                            and arg.keyword.value == "consent"
+                            and isinstance(arg.value, cst.Name)
+                        ):
                             self.HumbugReporterConsentArgument = arg.value.value
-                        elif arg.keyword.value == "bugout_token":
+                        elif (
+                            arg.keyword is not None
+                            and arg.keyword.value == "bugout_token"
+                            and isinstance(arg.value, cst.SimpleString)
+                        ):
                             self.HumbugReporterTokenArgument = arg.value.value
                 return False
 
