@@ -227,6 +227,10 @@ class TestSetupReporter(unittest.TestCase):
         self.assertDictEqual(results, {})
 
     def test_system_report_add(self):
+        # TODO(yhtiyar): This is currently only testing if adding the system_report call completed
+        # with no errors. It should also test that the call was added correctly. This means:
+        # 1. The reporter imports are done after all other top-level imports in the appropriate file
+        # 2. A system_report call is made immediately after the reports are done.
         manage.add_reporter(self.package_dir)
         manage.add_call(manage.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
 
