@@ -135,11 +135,11 @@ class PackageFileVisitor(cst.CSTVisitor):
                 self.ReporterImportedAt = position.start.line
 
     def visit_Import(self, node: cst.Import) -> Optional[bool]:
-        position = self.get_metadata(cst.metadata.PositionProvider, node);
+        position = self.get_metadata(cst.metadata.PositionProvider, node)
         self.add_imports(None, node.names, position)
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
-        position = self.get_metadata(cst.metadata.PositionProvider, node);
+        position = self.get_metadata(cst.metadata.PositionProvider, node)
         self.add_imports(node.module.value, node.names, position)
 
     def visit_Call(self, node: cst.Call) -> Optional[bool]:
@@ -147,9 +147,11 @@ class PackageFileVisitor(cst.CSTVisitor):
             return
         if isinstance(node.func, cst.Attribute) and isinstance(node.func.value, cst.Name):
             name = node.func.value.value
-            if (name == self.ReporterImportedAs
+            if (
+                    name == self.ReporterImportedAs
                     and isinstance(node.func.attr, cst.Name)
-                    and node.func.attr.value == manage.CALL_TYPE_SYSTEM_REPORT):
+                    and node.func.attr.value == manage.CALL_TYPE_SYSTEM_REPORT
+            ):
                 position = self.get_metadata(cst.metadata.PositionProvider, node)
                 self.ReporterSystemCallAt = position.start.line
 
