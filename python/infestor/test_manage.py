@@ -148,14 +148,29 @@ class PackageFileVisitor(cst.CSTVisitor):
                         value=self.ReporterImportedAs
                     ),
                     attr=m.Name(
-                        value="system_report"  # manage
+                        value=manage.CALL_TYPE_SYSTEM_REPORT
                     ),
                 ),
             ),
         )
 
-    def check_imports(self, node: Union[cst.Import, cst.ImportFrom]):
-        module = node.module.value
+    def visit_Import(self, node: cst.Import) -> Optional[bool]:
+        position = self.get_metadata(cst.metadata.PositionProvider, node)
+        self.last_import_lineno = position.end.line
+
+    def check_alias_for_reporter(self, import_aliases, position):
+        for alias in import_aliases:
+            name = alias.name.value
+            if name == "reporter":
+                asname = alias.asname
+                if asname:
+                    self.ReporterImportedAs = asname.name.value
+                else:
+                    self.ReporterImportedAs = name
+                self.ReporterImportedAt = position.start.line
+                self.ReporterCorrectlyImported = position.start.line == self.last_import_lineno + 1
+
+    def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
         position = self.get_metadata(cst.metadata.PositionProvider, node)
         import_aliases = node.names
         if self.relative_imports:
@@ -173,51 +188,21 @@ class PackageFileVisitor(cst.CSTVisitor):
                     break
             if (
                     node_import_level == expected_level
-                    and module == self.reporter_module_path[expected_level:]
+                    and node.module.value == self.reporter_module_path[expected_level:]
             ):
-                for alias in import_aliases:
-                    name = alias.name.value
-                    if name == "reporter":
-                        asname = alias.asname
-                        if asname:
-                            self.ReporterImportedAs = asname.name.value
-                        else:
-                            self.ReporterImportedAs = name
-                        self.ReporterImportedAt = position.start.line
-                        self.ReporterCorrectlyImported = position.start.line == self.last_import_lineno + 1
+                self.check_alias_for_reporter(import_aliases, position)
 
-        elif module.value == self.reporter_module_path:
-            for alias in import_aliases:
-                name = alias.name.value
-                if name == "reporter":
-                    asname = alias.asname
-                    if asname:
-                        self.ReporterImportedAs = asname.name.value
-                    else:
-                        self.ReporterImportedAs = name
-                    self.ReporterImportedAt = position.start.line
-                    self.ReporterCorrectlyImported = position.start.line == self.last_import_lineno + 1
+        elif self.matches_with_package_import(node):
+            self.check_alias_for_reporter(import_aliases, position)
 
         self.last_import_lineno = position.end.line
-
-    def visit_Import(self, node: cst.Import) -> Optional[bool]:
-        self.check_imports(node)
-
-    def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
-        self.check_imports(node)
 
     def visit_Call(self, node: cst.Call) -> Optional[bool]:
         if self.ReporterImportedAt == -1:
             return
-        if isinstance(node.func, cst.Attribute) and isinstance(node.func.value, cst.Name):
-            name = node.func.value.value
-            if (
-                    name == self.ReporterImportedAs
-                    and isinstance(node.func.attr, cst.Name)
-                    and node.func.attr.value == manage.CALL_TYPE_SYSTEM_REPORT
-            ):
-                position = self.get_metadata(cst.metadata.PositionProvider, node)
-                self.ReporterSystemCallAt = position.start.line
+        if self.matches_system_report_call(node):
+            position = self.get_metadata(cst.metadata.PositionProvider, node)
+            self.ReporterSystemCallAt = position.start.line
 
 
 class TestSetupReporter(unittest.TestCase):
