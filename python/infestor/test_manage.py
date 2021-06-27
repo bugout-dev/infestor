@@ -107,40 +107,74 @@ REPORTER_MODULE_NAME = manage.DEFAULT_REPORTER_FILENAME[:-3]  # removing .py end
 
 class PackageFileVisitor(cst.CSTVisitor):
     METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
-    last_import_lineno = -1
+    last_import_lineno = 0
 
-    def __init__(self):
+    def __init__(self, reporter_module_path: str, relative_imports: bool):
         self.ReporterImportedAs: str = ""
         self.ReporterImportedAt: int = -1
         self.ReporterSystemCallAt: int = -1
         self.ReporterExcepthookAt: int = -1
+        self.ReporterCorrectlyImported: bool = False
+
+        self.relative_imports = relative_imports
+        self.reporter_module_path = reporter_module_path
 
     def visit_FunctionDef(self, node: cst.FunctionDef):
         return False
 
-    def visit_ClassDef(sel, node: cst.ClassDef):
+    def visit_ClassDef(self, node: cst.ClassDef):
         return False
 
-    def add_imports(self, module, import_aliases, position):
-        self.last_import_lineno = position.end.line
-        if module == REPORTER_MODULE_NAME:
-            for report_alias in import_aliases:
-                name = report_alias.name.value
+    def add_imports(self, node,  module, import_aliases, position):
+        if self.relative_imports:
+            expected_level = 0
+            for character in self.reporter_module_path:
+                if character == ".":
+                    expected_level += 1
+                else:
+                    break
+            node_import_level = 0
+            for dot in node.relative:
+                if isinstance(dot, cst.Dot):
+                    node_import_level += 1
+                else:
+                    break
+            if (
+                    node_import_level == expected_level
+                    and module == self.reporter_module_path[expected_level:]
+            ):
+                for alias in import_aliases:
+                    name = alias.name.value
+                    if name == "reporter":
+                        asname = alias.asname
+                        if asname:
+                            self.ReporterImportedAs = asname.name.value
+                        else:
+                            self.ReporterImportedAs = name
+                        self.ReporterImportedAt = position.start.line
+                        self.ReporterCorrectlyImported = position.start.line == self.last_import_lineno + 1
+
+        elif module.value == self.reporter_module_path:
+            for alias in import_aliases:
+                name = alias.name.value
                 if name == "reporter":
-                    asname = report_alias.asname
+                    asname = alias.asname
                     if asname:
                         self.ReporterImportedAs = asname.name.value
                     else:
                         self.ReporterImportedAs = name
-                self.ReporterImportedAt = position.start.line
+                    self.ReporterImportedAt = position.start.line
+                    self.ReporterCorrectlyImported = position.start.line == self.last_import_lineno + 1
+
+        self.last_import_lineno = position.end.line
 
     def visit_Import(self, node: cst.Import) -> Optional[bool]:
         position = self.get_metadata(cst.metadata.PositionProvider, node)
-        self.add_imports(None, node.names, position)
+        self.add_imports(node, None, node.names, position)
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
         position = self.get_metadata(cst.metadata.PositionProvider, node)
-        self.add_imports(node.module.value, node.names, position)
+        self.add_imports(node, node.module.value, node.names, position)
 
     def visit_Call(self, node: cst.Call) -> Optional[bool]:
         if self.ReporterImportedAt == -1:
@@ -271,15 +305,10 @@ class TestSetupReporter(unittest.TestCase):
         self.assertDictEqual(results, {})
 
     def test_system_report_add(self):
-        # TODO(yhtiyar): This is currently only testing if adding the system_report call completed
-        # with no errors. It should also test that the call was added correctly. This means:
-        # 1. The reporter imports are done after all other top-level imports in the appropriate file
-        # 2. A system_report call is made immediately after the reports are done.
 
         manage.add_reporter(self.package_dir)
         manage.add_call(manage.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
 
-        return  #For now, not to throw error
         target_file = self.package_dir
         if os.path.isdir(target_file):
             target_file = os.path.join(target_file, "__init__.py")
@@ -295,7 +324,7 @@ class TestSetupReporter(unittest.TestCase):
                 source += line
         source_tree = cst.metadata.MetadataWrapper(cst.parse_module(source))
 
-        visitor = PackageFileVisitor()
+        visitor = PackageFileVisitor(self.package_name, False)
         source_tree.visit(visitor)
 
         self.assertNotEqual(
@@ -315,7 +344,10 @@ class TestSetupReporter(unittest.TestCase):
             visitor.ReporterImportedAt,
             "reporter is not last import"
         )
-
+        self.assertTrue(
+            visitor.ReporterCorrectlyImported,
+            "reporter is not imported right after last naked import"
+        )
         self.assertEqual(
             visitor.ReporterImportedAt,
             visitor.ReporterSystemCallAt - 1,
