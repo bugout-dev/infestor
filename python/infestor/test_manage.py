@@ -9,6 +9,7 @@ import unittest
 import uuid
 
 import libcst as cst
+import libcst.matchers as m
 import pygit2
 
 from . import commit, config, manage
@@ -124,6 +125,34 @@ class PackageFileVisitor(cst.CSTVisitor):
 
     def visit_ClassDef(self, node: cst.ClassDef):
         return False
+
+    def matches_with_package_import(self, node: cst.ImportFrom):
+        return m.matches(
+            node.module,
+            m.Attribute(
+                value=m.Name(
+                    value=self.reporter_module_path
+                ),
+                attr=m.Name(
+                    value="report"
+                ),
+            ),
+        )
+
+    def matches_system_report_call(self, node: cst.Call):
+        return m.matches(
+            node,
+            m.Call(
+                func=m.Attribute(
+                    value=m.Name(
+                        value=self.ReporterImportedAs
+                    ),
+                    attr=m.Name(
+                        value="system_report"  # manage
+                    ),
+                ),
+            ),
+        )
 
     def check_imports(self, node: Union[cst.Import, cst.ImportFrom]):
         module = node.module.value
