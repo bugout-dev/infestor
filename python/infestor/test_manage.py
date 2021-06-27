@@ -4,7 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import Optional, Sequence, List, Tuple
+from typing import Optional, Sequence, List, Tuple, Union
 import unittest
 import uuid
 
@@ -125,7 +125,10 @@ class PackageFileVisitor(cst.CSTVisitor):
     def visit_ClassDef(self, node: cst.ClassDef):
         return False
 
-    def add_imports(self, node,  module, import_aliases, position):
+    def check_imports(self, node: Union[cst.Import, cst.ImportFrom]):
+        module = node.module.value
+        position = self.get_metadata(cst.metadata.PositionProvider, node)
+        import_aliases = node.names
         if self.relative_imports:
             expected_level = 0
             for character in self.reporter_module_path:
@@ -169,12 +172,10 @@ class PackageFileVisitor(cst.CSTVisitor):
         self.last_import_lineno = position.end.line
 
     def visit_Import(self, node: cst.Import) -> Optional[bool]:
-        position = self.get_metadata(cst.metadata.PositionProvider, node)
-        self.add_imports(node, None, node.names, position)
+        self.check_imports(node)
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
-        position = self.get_metadata(cst.metadata.PositionProvider, node)
-        self.add_imports(node, node.module.value, node.names, position)
+        self.check_imports(node)
 
     def visit_Call(self, node: cst.Call) -> Optional[bool]:
         if self.ReporterImportedAt == -1:
@@ -312,11 +313,6 @@ class TestSetupReporter(unittest.TestCase):
         target_file = self.package_dir
         if os.path.isdir(target_file):
             target_file = os.path.join(target_file, "__init__.py")
-
-        self.assertTrue(
-            os.path.exists(target_file),
-            "__init__ file not created"
-        )
 
         source = ""
         with open(target_file, "r") as ifp:
