@@ -139,7 +139,7 @@ class PackageFileVisitor(cst.CSTVisitor):
             ),
         )
 
-    def matches_system_report_call(self, node: cst.Call):
+    def matches_call(self, node: cst.Call, call_name : str):
         return m.matches(
             node,
             m.Call(
@@ -148,11 +148,17 @@ class PackageFileVisitor(cst.CSTVisitor):
                         value=self.ReporterImportedAs
                     ),
                     attr=m.Name(
-                        value=manage.CALL_TYPE_SYSTEM_REPORT
+                        value=call_name
                     ),
                 ),
             ),
         )
+
+    def matches_system_report_call(self, node: cst.Call):
+        return self.matches_call(node, manage.CALL_TYPE_SYSTEM_REPORT)
+
+    def matches_setup_excepthook(self, node: cst.Call):
+        return self.matches_call(node, manage.CALL_TYPE_SETUP_EXCEPTHOOK)
 
     def visit_Import(self, node: cst.Import) -> Optional[bool]:
         position = self.get_metadata(cst.metadata.PositionProvider, node)
@@ -172,7 +178,6 @@ class PackageFileVisitor(cst.CSTVisitor):
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
         position = self.get_metadata(cst.metadata.PositionProvider, node)
-        import_aliases = node.names
         if self.relative_imports:
             expected_level = 0
             for character in self.reporter_module_path:
@@ -190,9 +195,11 @@ class PackageFileVisitor(cst.CSTVisitor):
                     node_import_level == expected_level
                     and node.module.value == self.reporter_module_path[expected_level:]
             ):
+                import_aliases = node.names
                 self.check_alias_for_reporter(import_aliases, position)
 
         elif self.matches_with_package_import(node):
+            import_aliases = node.names
             self.check_alias_for_reporter(import_aliases, position)
 
         self.last_import_lineno = position.end.line
@@ -203,6 +210,9 @@ class PackageFileVisitor(cst.CSTVisitor):
         if self.matches_system_report_call(node):
             position = self.get_metadata(cst.metadata.PositionProvider, node)
             self.ReporterSystemCallAt = position.start.line
+        elif self.matches_setup_excepthook(node):
+            position = self.get_metadata(cst.metadata.PositionProvider, node)
+            self.ReporterExcepthookAt = position.start.line
 
 
 class TestSetupReporter(unittest.TestCase):
