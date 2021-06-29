@@ -139,7 +139,7 @@ class PackageFileVisitor(cst.CSTVisitor):
             ),
         )
 
-    def matches_call(self, node: cst.Call, call_name : str):
+    def matches_call(self, node: cst.Call, call_name: str):
         return m.matches(
             node,
             m.Call(

@@ -3,7 +3,8 @@ import importlib.util
 import logging
 import os
 from typing import Any, cast, Dict, List, Optional, Tuple, Sequence
-
+import libcst as cst
+from . import transformers
 from .config import (
     default_config_file,
     load_config,
@@ -189,19 +190,21 @@ def ensure_reporter_nakedly_imported(
         path_components = [base] + path_components
 
     source_lines: List[str] = []
+    source_code = ""
     with open(submodule_path, "r") as ifp:
         for line in ifp:
             source_lines.append(line)
+            source_code += line
 
     new_code = ""
     name: Optional[str] = None
     if not configuration.relative_imports:
         path_components = [os.path.basename(repository)] + path_components
         name = ".".join(path_components)
-        new_code = f"from {name} import reporter\n"
+        new_code = f"from {name} import reporter"
     else:
         name = "." + ".".join(path_components)
-        new_code = f"from {name} import reporter\n"
+        new_code = f"from {name} import reporter"
 
     reporter_imported, reporter_imported_as = is_reporter_nakedly_imported(
         module, name, configuration.relative_imports
@@ -209,20 +212,17 @@ def ensure_reporter_nakedly_imported(
     if reporter_imported:
         return (cast(str, reporter_imported_as), final_import_end_lineno)
 
+    source_tree = cst.parse_module(source_code)
+    transformer = transformers.NakedTransformer([new_code], None)
+    new_tree = source_tree.visit(transformer)
+
     if final_import_end_lineno is not None:
-        source_lines = (
-            source_lines[:final_import_end_lineno]
-            + [new_code]
-            + source_lines[final_import_end_lineno:]
-        )
         final_import_end_lineno += 1
     else:
-        source_lines.append(new_code)
-        final_import_end_lineno = len(source_lines)
-
+        final_import_end_lineno = len(source_lines) + 1
+    print(new_tree.code)
     with open(submodule_path, "w") as ofp:
-        for line in source_lines:
-            ofp.write(line)
+        ofp.write(new_tree.code)
 
     # TODO(zomglings): Even the name under which reporter is imported should be parametrized!!
     return ("reporter", final_import_end_lineno)
@@ -355,21 +355,18 @@ def add_call(
         repository, target_file
     )
 
-    source_lines: List[str] = []
+    source_code = ""
     with open(target_file, "r") as ifp:
         for line in ifp:
-            source_lines.append(line)
+            source_code += line
 
-    new_code = f"{reporter_imported_as}.{call_type}()\n"
-    source_lines = (
-        source_lines[:final_import_end_lineno]
-        + [new_code]
-        + source_lines[final_import_end_lineno:]
-    )
+    new_code = f"{reporter_imported_as}.{call_type}()"
+    source_tree = cst.parse_module(source_code)
+    transformer = transformers.NakedTransformer(imports_to_add=None, calls_to_add=[new_code])
+    new_tree = source_tree.visit(transformer)
 
     with open(target_file, "w") as ofp:
-        for line in source_lines:
-            ofp.write(line)
+        ofp.write(new_tree.code)
 
 
 def remove_calls(
