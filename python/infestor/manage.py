@@ -220,7 +220,7 @@ def ensure_reporter_nakedly_imported(
         final_import_end_lineno += 1
     else:
         final_import_end_lineno = len(source_lines) + 1
-    print(new_tree.code)
+
     with open(submodule_path, "w") as ofp:
         ofp.write(new_tree.code)
 
