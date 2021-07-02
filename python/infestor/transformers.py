@@ -14,12 +14,17 @@ def matches_import(node: cst.CSTNode) -> bool:
 
 
 class NakedTransformer(cst.CSTTransformer):
+    """
+    Adds given imports and calls sources after last naked import.
+    First it adds imports, then calls
+    It is was supposed for temporary use to test out libcst
+    """
     last_import = None
 
     def __init__(
             self,
-            imports_to_add: Optional[List[str]],
-            calls_to_add: Optional[List[str]],
+            imports_to_add: Optional[List[str]],  #list of sources,
+            calls_to_add: Optional[List[str]],    #list of sources
     ):
 
         self.imports_to_add = imports_to_add
@@ -37,20 +42,8 @@ class NakedTransformer(cst.CSTTransformer):
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         new_body = []
-        for el in original_node.body:
-            new_body.append(el)
-            if el == self.last_import:
-                for import_code in self.imports_to_add:
-                    new_body.append(cst.parse_statement(
-                        import_code,
-                        original_node.config_for_parsing)
-                    )
-                for call_code in self.calls_to_add:
-                    new_body.append(cst.parse_statement(
-                        call_code,
-                        original_node.config_for_parsing)
-                    )
-        if self.last_import is None:
+
+        def add_sources():
             for import_code in self.imports_to_add:
                 new_body.append(cst.parse_statement(
                     import_code,
@@ -61,6 +54,13 @@ class NakedTransformer(cst.CSTTransformer):
                     call_code,
                     original_node.config_for_parsing)
                 )
+
+        for el in original_node.body:
+            new_body.append(el)
+            if el == self.last_import:
+                add_sources()
+        if self.last_import is None:
+            add_sources()
 
         return updated_node.with_changes(
             body=new_body
