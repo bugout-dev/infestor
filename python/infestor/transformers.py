@@ -131,7 +131,7 @@ class TryCatchTransformer(cst.CSTTransformer):
 
         new_inner_body = []
         has_called_error_report = False
-        for el in updated_node.body.body:   #TODO : w
+        for el in updated_node.body.body:   # Using updated node, since child od node is updated
             new_inner_body.append(el)
             if (
                     isinstance(el, cst.SimpleStatementLine)
