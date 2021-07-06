@@ -5,7 +5,10 @@ from typing import Optional
 import libcst as cst
 import libcst.matchers as m
 
+from . import config
 from . import transformers
+from .manage import add_reporter
+from .testcase import InfestorTestCase
 
 source1 = '''
 try:
@@ -14,7 +17,7 @@ except SomeError as e:
 
     print("With as name e")
     reporter.error_report(e)
-    
+
 except MyException as m:
 
     print("With as name m and some inside expressions")
@@ -125,6 +128,18 @@ class TestTryExcept(unittest.TestCase):
     def test_simple_try_except(self):
         source_code = '''
         '''
+
+
+class TestImportReporterTransformer(InfestorTestCase):
+    def setUp(self):
+        super().setUp()
+        add_reporter(self.package_dir)
+        self.config = config.load_config(self.config_file)
+        self.package_transformer = transformers.ImportReporterTransformer(self.package_dir)
+
+    def test_import_name(self):
+        import_path = self.package_transformer.import_path()
+        self.assertEqual(import_path, ".".join([self.package_name, "report"]))
 
 
 source = source1

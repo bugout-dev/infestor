@@ -1,3 +1,4 @@
+import os
 import pathlib
 from typing import Optional, List
 
@@ -26,22 +27,34 @@ class ImportReporterTransformer(cst.CSTTransformer):
     Makes sure that reporter is imported in a module so that any downstream code generation (which
     depends on this import) functions correctly.
     """
-    def __init__(self, repository: str):
-        self._repository = repository
-        self._config_file = config.default_config_file(repository)
+    def __init__(self, root: str):
+        self._root = root
+        self._config_file = config.default_config_file(root)
         self._config = config.load_config(self._config_file)
 
         self.reporter_import: Optional[cst.CSTNode] = None
 
-    def import_name(self):
+    def import_path(self):
         if self._config.reporter_filepath is None:
-            raise ImportReporterError(f"No reporter available in package: {self._repository}")
+            raise ImportReporterError(f"No reporter available in package: {self._root}")
 
-        reporter_filepath = pathlib.Path(self._config.reporter_filepath)
-        if not reporter_filepath.is_file():
-            raise ImportReporterError(f"Reporter path does not contain a file: {self._config.reporter_filepath}")
+        reporter_fullpath = pathlib.Path(self._root, self._config.reporter_filepath)
+        if not reporter_fullpath.is_file():
+            raise ImportReporterError(f"Reporter path is not a file: {reporter_fullpath}")
 
-        components: List[str] = []
+        reporter_relpath = pathlib.Path(os.path.basename(self._root), self._config.reporter_filepath)
+
+        path_parts = reporter_relpath.parts
+        components = list(path_parts[:-1])
+        last_part = path_parts[-1]
+        if last_part[-3:] == ".py":
+            last_part = last_part[:-3]
+        components.append(last_part)
+
+        if self._config.relative_imports:
+            components[0] = "."
+
+        return ".".join(components)
 
 class NakedTransformer(cst.CSTTransformer):
     """
