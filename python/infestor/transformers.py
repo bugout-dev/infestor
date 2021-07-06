@@ -131,7 +131,7 @@ class TryCatchTransformer(cst.CSTTransformer):
 
         new_inner_body = []
         has_called_error_report = False
-        for el in updated_node.body.body:
+        for el in updated_node.body.body:   #TODO : w
             new_inner_body.append(el)
             if (
                     isinstance(el, cst.SimpleStatementLine)
