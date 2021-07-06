@@ -1,13 +1,13 @@
+import difflib
 import unittest
 from typing import Optional
 
 import libcst as cst
 import libcst.matchers as m
-from infestor import transformers
-import difflib
+
+from . import transformers
 
 source1 = '''
-
 try:
     raise NameError("error")
 except SomeError as e:

@@ -212,6 +212,7 @@ def ensure_reporter_nakedly_imported(
     if reporter_imported:
         return (cast(str, reporter_imported_as), final_import_end_lineno)
 
+    # TODO(neeraj): Replace this with an EnsureReporterImportTransformer. New code should also be created as part of that transformer.
     source_tree = cst.parse_module(source_code)
     transformer = transformers.NakedTransformer([new_code], None)
     new_tree = source_tree.visit(transformer)
@@ -337,6 +338,7 @@ def add_call(
     1. repository - Path to repository in which Infestor has been set up
     2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
     """
+    # Determine the file to which we should add the call
     target_file = submodule_path
     if target_file is None:
         target_file = repository

@@ -1,7 +1,10 @@
-import libcst as cst
+import pathlib
 from typing import Optional, List
+
+import libcst as cst
 import libcst.matchers as m
 
+from . import config
 
 def matches_import(node: cst.CSTNode) -> bool:
     return m.matches(
@@ -11,6 +14,34 @@ def matches_import(node: cst.CSTNode) -> bool:
         )
     )
 
+class ImportReporterError(Exception):
+    """
+    This error is raised when the ImportReporterTransformer fails to ensure that a reporter is
+    imported in a module.
+    """
+    pass
+
+class ImportReporterTransformer(cst.CSTTransformer):
+    """
+    Makes sure that reporter is imported in a module so that any downstream code generation (which
+    depends on this import) functions correctly.
+    """
+    def __init__(self, repository: str):
+        self._repository = repository
+        self._config_file = config.default_config_file(repository)
+        self._config = config.load_config(self._config_file)
+
+        self.reporter_import: Optional[cst.CSTNode] = None
+
+    def import_name(self):
+        if self._config.reporter_filepath is None:
+            raise ImportReporterError(f"No reporter available in package: {self._repository}")
+
+        reporter_filepath = pathlib.Path(self._config.reporter_filepath)
+        if not reporter_filepath.is_file():
+            raise ImportReporterError(f"Reporter path does not contain a file: {self._config.reporter_filepath}")
+
+        components: List[str] = []
 
 class NakedTransformer(cst.CSTTransformer):
     """
