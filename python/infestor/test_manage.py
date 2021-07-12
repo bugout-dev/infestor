@@ -63,7 +63,7 @@ class TestSetupReporter(InfestorTestCase):
             )
 
     def test_list_system_reports_for_package_with_no_system_reports(self):
-        results = manage.list_calls(
+        results = manage.list_calls_lineno(
             manage.CALL_TYPE_SYSTEM_REPORT,
             self.package_dir,
         )
@@ -73,16 +73,15 @@ class TestSetupReporter(InfestorTestCase):
         manage.add_reporter(self.package_dir)
         manage.add_call(manage.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
 
-        target_file = self.package_dir
-        if os.path.isdir(target_file):
-            target_file = os.path.join(target_file, "__init__.py")
+        target_file = os.path.join(self.package_dir, "__init__.py")
 
         source = ""
         with open(target_file, "r") as ifp:
             for line in ifp:
                 source += line
+        print(source)
         source_tree = cst.metadata.MetadataWrapper(cst.parse_module(source))
-        visitor = visitors.PackageFileVisitor(self.package_name, False)
+        visitor = visitors.PackageFileVisitor(self.package_name+".report", False)
         source_tree.visit(visitor)
 
         self.assertNotEqual(

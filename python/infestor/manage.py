@@ -118,6 +118,21 @@ class PackageFileManager:
     def is_excepthook_called(self) -> bool:
         return self.visitor.ReporterExcepthookAt != -1
 
+    def get_excepthook_lineno(self):
+        return self.visitor.ReporterExcepthookAt
+
+    def remove_call(self, call_type: str):
+        call_source_to_remove = f"{self.visitor.ReporterImportedAs}.{call_type}()"
+        transformer = transformers.RemoverFromModuleTransformer([call_source_to_remove])
+        modified_tree = self.syntax_tree.visit(transformer)
+        self.__visit(modified_tree)
+
+    def list_decorators(self, decorator_type: str):
+        decorators: List[Tuple[str, int]] = []
+        for decorator_name, function_name, lineno in self.visitor.decorators:
+            if decorator_name == decorator_type:
+                decorators.append((function_name, lineno))
+
 
 def python_files(repository: str) -> Sequence[str]:
     results: List[str] = []
@@ -136,20 +151,10 @@ def python_files(repository: str) -> Sequence[str]:
     return results
 
 
-def ensure_reporter_nakedly_imported(
+def reporter_module_path(
     repository: str, submodule_path: str
-) -> Tuple[str, Optional[int]]:
-    """
-    Ensures that the given submodule has imported the Humbug reporter.
+) -> Tuple[str, bool]:
 
-    If this method adds an import, it adds it as the last naked import in the submodule.
-
-    Returns a pair:
-    (
-        <name under which the reporter has been imported in the submodule>,
-        <ending line number of final naked import>
-    )
-    """
     config_file = default_config_file(repository)
     configuration = load_config(config_file)
     if configuration is None:
@@ -186,16 +191,7 @@ def ensure_reporter_nakedly_imported(
     else:
         name = "." + ".".join(path_components)
 
-    package_file_manager = PackageFileManager(submodule_path, name, configuration.relative_imports)
-    if package_file_manager.is_reporter_imported():
-        return (package_file_manager.get_reporter_import_asname(),
-                package_file_manager.get_reporter_import_lineno())
-
-    package_file_manager.add_reporter_import()
-    package_file_manager.write_to_file()
-    print(package_file_manager.get_code())
-    # TODO(zomglings): Even the name under which reporter is imported should be parametrized!!
-    return ("reporter", package_file_manager.get_reporter_import_lineno())
+    return (name, configuration.relative_imports)
 
 
 def list_reporter_imports(
@@ -206,7 +202,7 @@ def list_reporter_imports(
     1. repository - Path to repository in which Infestor has been set up
     2. candidate_files - Optional list of files to restrict analysis to
     """
-    results: Dict[str, ast.Module] = {}
+    results: Dict[str, PackageFileManager] = {}
 
     config_file = default_config_file(repository)
     configuration = load_config(config_file)
@@ -219,80 +215,41 @@ def list_reporter_imports(
         # No infestor-managed reporter file, so just return quietly
         return results
 
-    # Until the end of the loop, this is reversed
-    reporter_filepath = configuration.reporter_filepath
-    dirname, basename = os.path.split(reporter_filepath)
-    base_module, _ = os.path.splitext(basename)
-    reporter_module_components: List[str] = [base_module]
-    while True:
-        dirname, basename = os.path.split(dirname)
-        if basename == "":
-            break
-        reporter_module_components.append(basename)
-        if dirname == "":
-            break
-    reporter_module_components.reverse()
-    reporter_module = ".".join(reporter_module_components)
-
     if candidate_files is None:
         candidate_files = python_files(repository)
 
     for candidate_file in candidate_files:
-        module: Optional[ast.Module] = None
-        with open(candidate_file, "r") as ifp:
-            module = ast.parse(ifp.read())
-
-        for statement in module.body:
-            if isinstance(statement, ast.Import):
-                for name in statement.names:
-                    if name.name == reporter_module:
-                        results[candidate_file] = module
-            elif isinstance(statement, ast.ImportFrom):
-                module_name = f"{'.'*statement.level}{statement.module}"
-                qualified_module_name = importlib.util.resolve_name(
-                    module_name, repository
-                )
-                if qualified_module_name == reporter_module:
-                    results[candidate_file] = module
+        reporter_mod_path, relative_imports = reporter_module_path(repository, candidate_file)
+        package_file_manager = PackageFileManager(candidate_file, reporter_mod_path, relative_imports)
+        if package_file_manager.is_reporter_imported():
+            results[candidate_file] = package_file_manager
 
     return results
 
-
-def list_calls(
+# TODO (yhtiyar) For now it is only listing system_report:
+def list_calls_lineno(
     call_type: str,
     repository: str,
     candidate_files: Optional[Sequence[str]] = None,
-) -> Dict[str, List[ast.Call]]:
+) -> Dict[str, List[int]]:
     """
     Args:
     0. call_type - Type of call to list in the given package (e.g. "system_report", "setup_excepthook", etc.)
     1. repository - Path to repository in which Infestor has been set up
     2. candidate_files - Optional list of files to restrict analysis to
     """
-    results: Dict[str, List[ast.Call]] = {}
+    results: Dict[str, List[int]] = {}
     files_with_reporter = list_reporter_imports(repository, candidate_files)
+    # TODO (yhtiyar) make package file visitor is called method by call_type
+    for filepath, file_manager in files_with_reporter.items():
+        calls = []
+        # Remove this:
+        if file_manager.is_system_report_called() and call_type == CALL_TYPE_SYSTEM_REPORT:
+            calls.append(file_manager.get_system_report_lineno())
+        elif file_manager.is_excepthook_called() and call_type == CALL_TYPE_SETUP_EXCEPTHOOK:
+            calls.append(file_manager.is_excepthook_called())
 
-    call_logger = CallVisitor()
-    for filepath, file_ast in files_with_reporter.items():
-        calls: List[ast.Call] = []
-        call_logger.calls = []
-        call_logger.visit(file_ast)
-
-        for call_object in call_logger.calls:
-            if (
-                isinstance(call_object.func, ast.Name)
-                and call_object.func.id == call_type
-            ):
-                calls.append(call_object)
-            elif (
-                isinstance(call_object.func, ast.Attribute)
-                and call_object.func.attr == call_type
-            ):
-                calls.append(call_object)
-
-        if calls:
-            results[filepath] = calls
-
+        results[filepath] = calls
     return results
 
 
@@ -317,19 +274,19 @@ def add_call(
     if not os.path.exists(target_file):
         with open(target_file, "w") as ofp:
             ofp.write("")
-    #package_file_manager = PackageFileManager()
-    #TODO(yhtiyar) Remove this:
-    existing_calls = list_calls(call_type, repository, candidate_files=[target_file])
-    if existing_calls:
+
+    reporter_mod_path, relative_imports = reporter_module_path(repository, target_file)
+    package_file_manager = PackageFileManager(target_file, reporter_mod_path, relative_imports)
+
+    # TODO (yhtiyar) Refactor this after adding PackageFileManager method with call_type
+    if package_file_manager.is_system_report_called() and call_type == "system_report":
+        return
+    elif package_file_manager.is_excepthook_called() and call_type == "excepthook":
         return
 
-    reporter_imported_as, final_import_end_lineno = ensure_reporter_nakedly_imported(
-        repository, target_file
-    )
-
-    #TODO (yhtiyar) Add calls
-
-
+    package_file_manager.add_reporter_import()
+    package_file_manager.add_call(call_type)
+    package_file_manager.write_to_file()
 
 
 def remove_calls(
@@ -348,31 +305,12 @@ def remove_calls(
         candidate_files = python_files(repository)
     candidate_files = cast(Sequence[str], candidate_files)
 
-    system_report_calls = list_calls(call_type, repository, candidate_files)
+    for candidate_file in candidate_files:
+        reporter_mod_path, relative_imports = reporter_module_path(repository, candidate_file)
+        package_file_manager = PackageFileManager(candidate_file, reporter_mod_path, relative_imports)
+        package_file_manager.remove_call(call_type)
+        package_file_manager.write_to_file()
 
-    for filepath, calls in system_report_calls.items():
-        deletions: List[Tuple[int, Optional[int]]] = [
-            (report_call.lineno, report_call.end_lineno) for report_call in calls
-        ]
-
-        if deletions:
-            current_deletion = 0
-            new_lines = []
-            with open(filepath, "r") as ifp:
-                for j, line in enumerate(ifp):
-                    i = j + 1
-                    if i >= deletions[current_deletion][0] and (
-                        deletions[current_deletion][1] is None
-                        or i <= cast(int, deletions[current_deletion][1])
-                    ):
-                        if current_deletion + 1 < len(deletions):
-                            current_deletion += 1
-                        continue
-                    else:
-                        new_lines.append(line)
-
-            with open(filepath, "w") as ofp:
-                ofp.write("".join(new_lines))
 
 
 def list_decorators(

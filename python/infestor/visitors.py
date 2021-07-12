@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List, Tuple
 
 import libcst.matchers as m
 import libcst as cst
@@ -121,20 +121,24 @@ class PackageFileVisitor(cst.CSTVisitor):
 
         self.relative_imports = relative_imports
         self.reporter_module_path = reporter_module_path
+        self.decorators: List[Tuple[str, str, int]] = []
 
     def visit_FunctionDef(self, node: cst.FunctionDef):
+        for decorator in node.decorators:
+            position = self.get_metadata(cst.metadata.PositionProvider, decorator)
+            self.decorators.append((decorator.Name.value, node.name.value, position.start.line))
         return False
 
     def visit_ClassDef(self, node: cst.ClassDef):
         return False
-
+    # TODO(yhtiyar) also add checking with 'import'
     def matches_with_package_import(self, node: cst.ImportFrom):
         return m.matches(
             node.module,
             m.Attribute(
                 value=m.Name(
                     #TODO: Refactor this
-                    value=self.reporter_module_path.rsplit('.', 1)[0]
+                    value=self.reporter_module_path.rsplit('.', 1)[0]  # checking for reporter module path basename
                 ),
                 attr=m.Name(
                     value="report"

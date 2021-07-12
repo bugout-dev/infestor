@@ -76,10 +76,10 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
 
     def handle_list(args: argparse.Namespace) -> None:
         results = manage.list_calls(call_type, args.repository)
-        for filepath, calls in results.items():
+        for filepath, calls_lineno in results.items():
             print(f"Lines in {filepath}:")
-            for report_call in calls:
-                print(f"\t- {report_call.lineno}")
+            for lineno in calls_lineno:
+                print(f"\t- {lineno}")
 
     def handle_add(args: argparse.Namespace) -> None:
         # TODO(zomglings): Is there a better way to check if an argparse.Namespace has a given member?
