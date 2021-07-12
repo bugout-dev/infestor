@@ -6,6 +6,7 @@ from . import visitors
 from .manage import add_reporter
 from .testcase import InfestorTestCase
 
+
 class TestReporterFileVisitor(InfestorTestCase):
     def setUp(self):
         super().setUp()
@@ -27,6 +28,11 @@ class TestReporterFileVisitor(InfestorTestCase):
         self.assertGreater(visitor.HumbugReporterInstantiatedAt, visitor.HumbugConsentInstantiatedAt)
         self.assertEqual(visitor.HumbugReporterConsentArgument, visitor.HumbugConsentInstantiatedAs)
         self.assertNotEqual(visitor.HumbugReporterTokenArgument, "")
+
+
+class TestPackageFileVisitor(InfestorTestCase):
+    pass
+
 
 if __name__ == "__main__":
     unittest.main()

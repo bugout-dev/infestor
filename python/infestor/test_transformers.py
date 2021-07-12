@@ -84,6 +84,7 @@ def matches_error_report_call(node: cst.Call, except_as_name, reporter_imported_
         ),
     )
 
+
 def matches_error_report_statement(node: cst.SimpleStatementLine, except_as_name, reporter_imported_as):
     return m.matches(
         node,
@@ -95,6 +96,7 @@ def matches_error_report_statement(node: cst.SimpleStatementLine, except_as_name
             )]
         )
     )
+
 
 class CheckExceptHandlerVisitor(cst.CSTVisitor):
 
@@ -121,6 +123,7 @@ class CheckExceptHandlerVisitor(cst.CSTVisitor):
                 has_error_report = True
         return True
 
+
 class TestTryExcept(unittest.TestCase):
     def setUp(self) -> None:
         pass
@@ -136,10 +139,6 @@ class TestImportReporterTransformer(InfestorTestCase):
         add_reporter(self.package_dir)
         self.config = config.load_config(self.config_file)
         self.package_transformer = transformers.ImportReporterTransformer(self.package_dir)
-
-    def test_import_name(self):
-        import_path = self.package_transformer.import_path()
-        self.assertEqual(import_path, ".".join([self.package_name, "report"]))
 
 
 source = source1

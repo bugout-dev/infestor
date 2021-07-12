@@ -7,13 +7,17 @@ import libcst.matchers as m
 
 from . import config
 
+
 def matches_import(node: cst.CSTNode) -> bool:
     return m.matches(
         node,
         m.SimpleStatementLine(
-            body=[m.Import | m.ImportFrom]
-        )
+            body=m.MatchIfTrue(
+                lambda body: all(m.matches(el, m.Import | m.ImportFrom) for el in body)
+            )
+        ),
     )
+
 
 class ImportReporterError(Exception):
     """
@@ -22,39 +26,99 @@ class ImportReporterError(Exception):
     """
     pass
 
+
 class ImportReporterTransformer(cst.CSTTransformer):
     """
-    Makes sure that reporter is imported in a module so that any downstream code generation (which
-    depends on this import) functions correctly.
+    Imports reporter from reporter_module_path path after last naked import
     """
-    def __init__(self, root: str):
-        self._root = root
-        self._config_file = config.default_config_file(root)
-        self._config = config.load_config(self._config_file)
+    def __init__(self, reporter_module_path):
+        self.reporter_import_code = f"from {reporter_module_path} import reporter"
+        self.last_import = None
 
-        self.reporter_import: Optional[cst.CSTNode] = None
+    def visit_Module(self, node: cst.Module) -> Optional[bool]:
+        for statement in node.body:
+            if matches_import(statement):
+                self.last_import = statement
+        return False
 
-    def import_path(self):
-        if self._config.reporter_filepath is None:
-            raise ImportReporterError(f"No reporter available in package: {self._root}")
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
+        new_body = []
 
-        reporter_fullpath = pathlib.Path(self._root, self._config.reporter_filepath)
-        if not reporter_fullpath.is_file():
-            raise ImportReporterError(f"Reporter path is not a file: {reporter_fullpath}")
+        parsed_reporter_import = cst.parse_statement(
+                    self.reporter_import_code,
+                    original_node.config_for_parsing
+        )
 
-        reporter_relpath = pathlib.Path(os.path.basename(self._root), self._config.reporter_filepath)
+        if self.last_import is None:
+            new_body.append(parsed_reporter_import)
 
-        path_parts = reporter_relpath.parts
-        components = list(path_parts[:-1])
-        last_part = path_parts[-1]
-        if last_part[-3:] == ".py":
-            last_part = last_part[:-3]
-        components.append(last_part)
+        for el in original_node.body:
+            new_body.append(el)
+            if el == self.last_import:
+                new_body.append(parsed_reporter_import)
 
-        if self._config.relative_imports:
-            components[0] = "."
+        return updated_node.with_changes(
+            body=new_body
+        )
 
-        return ".".join(components)
+
+class ReporterCallsTransformer(cst.CSTTransformer):
+    def __init__(self, calls_to_add_codes: List[str]):
+        self.calls_to_add_codes = calls_to_add_codes
+        self.last_import = None
+
+    def visit_Module(self, node: cst.Module) -> Optional[bool]:
+        for statement in node.body:
+            if matches_import(statement):
+                self.last_import = statement
+        return False
+
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
+        new_body = []
+
+        if self.last_import is None:
+            raise Exception("No import found")
+
+        for el in original_node.body:
+            new_body.append(el)
+            if el == self.last_import:
+                for call_code in self.calls_to_add_codes:
+                    new_body.append(cst.parse_statement(
+                        call_code,
+                        original_node.config_for_parsing)
+                    )
+        return updated_node.with_changes(
+            body=new_body
+        )
+
+
+class RemoverFromModuleTransformer(cst.CSTTransformer):
+    def __init__(
+            self,
+            sources_to_remove: Optional[List[str]]
+    ):
+
+        self.sources_to_remove = sources_to_remove
+
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
+        new_body = []
+        nodes_to_remove = []
+
+        for s in self.sources_to_remove:
+            nodes_to_remove.append(cst.parse_statement(s, original_node.config_for_parsing))
+
+        for el in original_node.body:
+            need_to_remove = False
+            for rem in nodes_to_remove:
+                if el.deep_equals(rem):
+                    need_to_remove = True
+            if not need_to_remove:
+                new_body.append(el)
+
+        return updated_node.with_changes(
+            body=new_body
+        )
+
 
 class NakedTransformer(cst.CSTTransformer):
     """
@@ -116,6 +180,7 @@ ERROR_REPORT_CODE = "error_report"
 class TryCatchTransformer(cst.CSTTransformer):
     def __init__(self, reported_imported_as: str):
         self.reporter_imported_as = reported_imported_as
+
 
     def has_except_asname(self, node: cst.ExceptHandler):
         return m.matches(

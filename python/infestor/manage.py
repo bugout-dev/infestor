@@ -5,6 +5,7 @@ import os
 from typing import Any, cast, Dict, List, Optional, Tuple, Sequence
 import libcst as cst
 from . import transformers
+from . import visitors
 from .config import (
     default_config_file,
     load_config,
@@ -54,6 +55,70 @@ class FunctionDefVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+class PackageFileManager:
+
+    def __init__(self, file_path: str, reporter_module_path: str, relative_imports: bool):
+        self.reporter_module_path = reporter_module_path
+        self.relative_imports = relative_imports
+        self.file_path = file_path
+
+        with open(file_path, "r") as ifp:
+            file_source = ifp.read()
+        self.__visit(cst.parse_module(file_source))
+
+    def __visit(self, module: cst.Module):
+        self.syntax_tree = cst.metadata.MetadataWrapper(module)
+        self.visitor = visitors.PackageFileVisitor(self.reporter_module_path, self.relative_imports)
+        self.syntax_tree.visit(self.visitor)
+
+    def get_code(self):
+        return self.syntax_tree.module.code
+
+    def write_to_file(self):
+        with open(self.file_path, "w") as ofp:
+            ofp.write(self.get_code())
+
+    def is_reporter_imported(self) -> bool:
+        return self.visitor.ReporterImportedAt != -1 and self.visitor.ReporterImportedAs != ""
+
+    def ensure_reporter_imported(self) -> bool:
+        if not self.is_reporter_imported():
+            raise Exception("reporter not imported")
+        return True
+
+    def get_reporter_import_lineno(self) -> int:
+        self.ensure_reporter_imported()
+        return self.visitor.ReporterImportedAt
+
+    def get_reporter_import_asname(self) -> str:
+        self.ensure_reporter_imported()
+        return self.visitor.ReporterImportedAs
+
+    def add_reporter_import(self) -> None:
+        if self.is_reporter_imported():
+            return
+        transformer = transformers.ImportReporterTransformer(self.reporter_module_path)
+        modified_tree = self.syntax_tree.visit(transformer)
+        self.__visit(modified_tree)
+
+    def is_system_report_called(self) -> bool:
+        return self.visitor.ReporterSystemCallAt != -1
+
+    def get_system_report_lineno(self):
+        return self.visitor.ReporterSystemCallAt
+
+    def add_call(self, call_type):
+        if self.is_system_report_called():
+            return
+        call_source_code = f"{self.visitor.ReporterImportedAs}.{call_type}()"
+        transformer = transformers.ReporterCallsTransformer([call_source_code])
+        modified_tree = self.syntax_tree.visit(transformer)
+        self.__visit(modified_tree)
+
+    def is_excepthook_called(self) -> bool:
+        return self.visitor.ReporterExcepthookAt != -1
+
+
 def python_files(repository: str) -> Sequence[str]:
     results: List[str] = []
     if os.path.isfile(repository):
@@ -69,76 +134,6 @@ def python_files(repository: str) -> Sequence[str]:
         )
 
     return results
-
-
-def last_naked_import_ending_line_number(module: ast.Module) -> Optional[int]:
-    """
-    Returns the number of the line on which the last top-level import (or import from) ends.
-    """
-    ending_line_number = None
-    for statement in module.body:
-        if isinstance(statement, ast.Import) or isinstance(statement, ast.ImportFrom):
-            ending_line_number = statement.end_lineno
-    return ending_line_number
-
-
-class CheckReporterImportedVisitor(ast.NodeVisitor):
-    def __init__(self, reporter_module_path: str, relative_imports: bool):
-        """
-        reporter_module_path - This is the Python module path (e.g. a.b.c) to the module in which the
-        reporter is defined
-
-        This static analyzer just checks if the reporter module is imported (either as an absolute or
-        relative import) in a given ast.Module object.
-        """
-        self.relative_imports = relative_imports
-        self.reporter_module_path = reporter_module_path
-        self.reporter_nakedly_imported = False
-        self.reporter_imported_as: Optional[str] = None
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> Any:
-        if self.relative_imports:
-            expected_level = 0
-            for character in self.reporter_module_path:
-                if character == ".":
-                    expected_level += 1
-                else:
-                    break
-
-            if (
-                node.level == expected_level
-                and node.module == self.reporter_module_path[expected_level:]
-            ):
-                for alias in node.names:
-                    if alias.name == "reporter":
-                        self.reporter_nakedly_imported = True
-                        self.reporter_imported_as = "reporter"
-                        if alias.asname is not None:
-                            self.reporter_imported_as = alias.asname
-        elif node.module == self.reporter_module_path:
-            for alias in node.names:
-                if alias.name == "reporter":
-                    self.reporter_nakedly_imported = True
-                    self.reporter_imported_as = "reporter"
-                    if alias.asname is not None:
-                        self.reporter_imported_as = alias.asname
-
-
-def is_reporter_nakedly_imported(
-    module: ast.Module, reporter_module_path: str, relative_imports: bool
-) -> Tuple[bool, Optional[str]]:
-    """
-    Checks if a Humbug reporter has been imported at the top level of the given module (represented by its AST).
-
-    Return a pair of the form:
-    (
-        <boolean value representing whether or not the module contains a reporter import>,
-        <what the reporter was imported as>
-    )
-    """
-    visitor = CheckReporterImportedVisitor(reporter_module_path, relative_imports)
-    visitor.visit(module)
-    return (visitor.reporter_nakedly_imported, visitor.reporter_imported_as)
 
 
 def ensure_reporter_nakedly_imported(
@@ -171,12 +166,6 @@ def ensure_reporter_nakedly_imported(
     if not os.path.exists(submodule_path):
         raise GenerateReporterError(f"No file at submodule_path: {submodule_path}")
 
-    module: Optional[ast.Module] = None
-    with open(submodule_path, "r") as ifp:
-        module = ast.parse(ifp.read())
-
-    final_import_end_lineno = last_naked_import_ending_line_number(module)
-
     path_to_reporter_file = os.path.relpath(
         os.path.join(repository, reporter_filepath),
         os.path.dirname(submodule_path),
@@ -189,49 +178,29 @@ def ensure_reporter_nakedly_imported(
             base, _ = os.path.splitext(base)
         path_components = [base] + path_components
 
-    source_lines: List[str] = []
-    source_code = ""
-    with open(submodule_path, "r") as ifp:
-        for line in ifp:
-            source_lines.append(line)
-            source_code += line
-
-    new_code = ""
     name: Optional[str] = None
     if not configuration.relative_imports:
         path_components = [os.path.basename(repository)] + path_components
         name = ".".join(path_components)
-        new_code = f"from {name} import reporter"
+
     else:
         name = "." + ".".join(path_components)
-        new_code = f"from {name} import reporter"
 
-    reporter_imported, reporter_imported_as = is_reporter_nakedly_imported(
-        module, name, configuration.relative_imports
-    )
-    if reporter_imported:
-        return (cast(str, reporter_imported_as), final_import_end_lineno)
+    package_file_manager = PackageFileManager(submodule_path, name, configuration.relative_imports)
+    if package_file_manager.is_reporter_imported():
+        return (package_file_manager.get_reporter_import_asname(),
+                package_file_manager.get_reporter_import_lineno())
 
-    # TODO(neeraj): Replace this with an EnsureReporterImportTransformer. New code should also be created as part of that transformer.
-    source_tree = cst.parse_module(source_code)
-    transformer = transformers.NakedTransformer([new_code], None)
-    new_tree = source_tree.visit(transformer)
-
-    if final_import_end_lineno is not None:
-        final_import_end_lineno += 1
-    else:
-        final_import_end_lineno = len(source_lines) + 1
-
-    with open(submodule_path, "w") as ofp:
-        ofp.write(new_tree.code)
-
+    package_file_manager.add_reporter_import()
+    package_file_manager.write_to_file()
+    print(package_file_manager.get_code())
     # TODO(zomglings): Even the name under which reporter is imported should be parametrized!!
-    return ("reporter", final_import_end_lineno)
+    return ("reporter", package_file_manager.get_reporter_import_lineno())
 
 
 def list_reporter_imports(
     repository: str, candidate_files: Optional[Sequence[str]] = None
-) -> Dict[str, ast.Module]:
+) -> Dict[str, PackageFileManager]:
     """
     Args:
     1. repository - Path to repository in which Infestor has been set up
@@ -348,7 +317,8 @@ def add_call(
     if not os.path.exists(target_file):
         with open(target_file, "w") as ofp:
             ofp.write("")
-
+    #package_file_manager = PackageFileManager()
+    #TODO(yhtiyar) Remove this:
     existing_calls = list_calls(call_type, repository, candidate_files=[target_file])
     if existing_calls:
         return
@@ -357,18 +327,9 @@ def add_call(
         repository, target_file
     )
 
-    source_code = ""
-    with open(target_file, "r") as ifp:
-        for line in ifp:
-            source_code += line
+    #TODO (yhtiyar) Add calls
 
-    new_code = f"{reporter_imported_as}.{call_type}()"
-    source_tree = cst.parse_module(source_code)
-    transformer = transformers.NakedTransformer(imports_to_add=None, calls_to_add=[new_code])
-    new_tree = source_tree.visit(transformer)
 
-    with open(target_file, "w") as ofp:
-        ofp.write(new_tree.code)
 
 
 def remove_calls(
