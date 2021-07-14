@@ -7,7 +7,7 @@ import libcst.matchers as m
 
 from . import config
 
-
+# TODO(yhtiyar): this is not working properly
 def matches_import(node: cst.CSTNode) -> bool:
     return m.matches(
         node,
@@ -62,9 +62,25 @@ class ImportReporterTransformer(cst.CSTTransformer):
         )
 
 
-class ReporterCallsTransformer(cst.CSTTransformer):
-    def __init__(self, calls_to_add_codes: List[str]):
-        self.calls_to_add_codes = calls_to_add_codes
+class ReporterCallsAdderTransformer(cst.CSTTransformer):
+    def __init__(self, reporter_imported_as: str, call_type: str):
+        # self.call_to_add = cst.parse_statement(f"{reporter_imported_as}.{call_type}()")
+        self.call_to_add = cst.SimpleStatementLine(
+            body=[
+                cst.Expr(
+                    value=cst.Call(
+                        func=cst.Attribute(
+                            value=cst.Name(
+                                value=reporter_imported_as
+                            ),
+                            attr=cst.Name(
+                                value=call_type
+                            ),
+                        )
+                    )
+                )
+            ]
+        )
         self.last_import = None
 
     def visit_Module(self, node: cst.Module) -> Optional[bool]:
@@ -77,97 +93,49 @@ class ReporterCallsTransformer(cst.CSTTransformer):
         new_body = []
 
         if self.last_import is None:
-            raise Exception("No import found")
+            raise Exception("No import found when tried to add call")
 
         for el in original_node.body:
             new_body.append(el)
             if el == self.last_import:
-                for call_code in self.calls_to_add_codes:
-                    new_body.append(cst.parse_statement(
-                        call_code,
-                        original_node.config_for_parsing)
+                new_body.append(self.call_to_add)
+
+        return updated_node.with_changes(
+            body=new_body
+        )
+
+
+class ReporterCallsRemoverTransformer(cst.CSTTransformer):
+    def matches_reporter_call(self, node: cst.CSTNode):
+        return m.matches(
+            node,
+            m.Call(
+                func=m.Attribute(
+                    value=m.Name(
+                        value=self.reporter_imported_as
+                    ),
+                    attr=m.Name(
+                        value=self.call_type
                     )
-        return updated_node.with_changes(
-            body=new_body
+                ),
+            ),
         )
 
-
-class RemoverFromModuleTransformer(cst.CSTTransformer):
     def __init__(
             self,
-            sources_to_remove: Optional[List[str]]
+            reporter_imported_as: str,
+            call_type: str
     ):
 
-        self.sources_to_remove = sources_to_remove
+        self.reporter_imported_as = reporter_imported_as
+        self.call_type = call_type
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         new_body = []
-        nodes_to_remove = []
-
-        for s in self.sources_to_remove:
-            nodes_to_remove.append(cst.parse_statement(s, original_node.config_for_parsing))
 
         for el in original_node.body:
-            need_to_remove = False
-            for rem in nodes_to_remove:
-                if el.deep_equals(rem):
-                    need_to_remove = True
-            if not need_to_remove:
+            if not self.matches_reporter_call(el):
                 new_body.append(el)
-
-        return updated_node.with_changes(
-            body=new_body
-        )
-
-
-class NakedTransformer(cst.CSTTransformer):
-    """
-    Adds given imports and calls sources after last naked import.
-    First it adds imports, then calls
-    It is was supposed for temporary use to test out libcst
-    """
-    last_import = None
-
-    def __init__(
-            self,
-            imports_to_add: Optional[List[str]],  # list of sources,
-            calls_to_add: Optional[List[str]],  # list of sources
-    ):
-
-        self.imports_to_add = imports_to_add
-        if self.imports_to_add is None:
-            self.imports_to_add = []
-        self.calls_to_add = calls_to_add
-        if self.calls_to_add is None:
-            self.calls_to_add = []
-
-    def visit_Module(self, node: cst.Module) -> Optional[bool]:
-        for statement in node.body:
-            if matches_import(statement):
-                self.last_import = statement
-        return False
-
-    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
-        new_body = []
-
-        def add_sources():
-            for import_code in self.imports_to_add:
-                new_body.append(cst.parse_statement(
-                    import_code,
-                    original_node.config_for_parsing)
-                )
-            for call_code in self.calls_to_add:
-                new_body.append(cst.parse_statement(
-                    call_code,
-                    original_node.config_for_parsing)
-                )
-
-        for el in original_node.body:
-            new_body.append(el)
-            if el == self.last_import:
-                add_sources()
-        if self.last_import is None:
-            add_sources()
 
         return updated_node.with_changes(
             body=new_body
@@ -180,7 +148,6 @@ ERROR_REPORT_CODE = "error_report"
 class TryCatchTransformer(cst.CSTTransformer):
     def __init__(self, reported_imported_as: str):
         self.reporter_imported_as = reported_imported_as
-
 
     def has_except_asname(self, node: cst.ExceptHandler):
         return m.matches(
@@ -237,7 +204,6 @@ class TryCatchTransformer(cst.CSTTransformer):
         else:
             new_name = cst.AsName(name=cst.Name(value=asname))
 
-
         new_inner_body = []
         has_called_error_report = False
         for el in updated_node.body.body:   # Using updated node, since child od node is updated
@@ -266,4 +232,86 @@ class TryCatchTransformer(cst.CSTTransformer):
             ),
         )
 
+
+def matches_with_reporter_decorator(node: cst.Decorator, reporter_imported_as, decorator_type):
+    return m.matches(
+        node,
+        m.Decorator(
+            decorator=m.Attribute(
+                value=m.Name(
+                    value=reporter_imported_as
+                ),
+                attr=m.Name(
+                    value=decorator_type
+                )
+            )
+
+        )
+    )
+
+
+class DecoratorsAdderTransformer(cst.CSTTransformer):
+    METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
+
+    def __init__(
+            self,
+            reporter_imported_as,
+            decorator_type,
+            lines_to_add: List[int]
+    ):
+        self.reporter_imported_as = reporter_imported_as
+        self.lines_to_add = lines_to_add
+        self.decorator_type = decorator_type
+        self.decorator_to_add = cst.Decorator(
+            decorator=cst.Attribute(
+                value=cst.Name(
+                    value=reporter_imported_as,
+                ),
+                attr=cst.Name(
+                    value=decorator_type,
+                ),
+            )
+        )
+
+    def leave_FunctionDef(self, original_node, updated_node):
+        position = self.get_metadata(cst.metadata.PositionProvider, original_node)
+        if position.start.line not in self.lines_to_add:
+            return updated_node
+
+        decorators = [self.decorator_to_add]
+        for decorator in updated_node.decorators:
+            decorators.append(decorator)
+            if matches_with_reporter_decorator(decorator, self.reporter_imported_as, self.decorator_type):
+                return updated_node
+
+        return updated_node.with_changes(
+            decorators=decorators
+        )
+
+
+class DecoratorsRemoverTransformer(cst.CSTTransformer):
+    def __init__(
+            self,
+            reporter_imported_as,
+            decorator_type,
+            lines_to_remove: List[int]
+    ):
+        self.reporter_imported_as = reporter_imported_as
+        self.decorator_type = decorator_type
+        self.lines_to_remove = lines_to_remove
+
+    def leave_FunctionDef(self, original_node, updated_node):
+        position = self.get_metadata(cst.metadata.PositionProvider, original_node)
+
+        if position.start.line not in self.lines_to_remove:
+            return updated_node
+
+        decorators = []
+        for decorator in updated_node.decorators:
+            if not matches_with_reporter_decorator(decorator, self.reporter_imported_as, self.decorator_type):
+                decorators.append(decorator)
+
+        return updated_node.with_changes(
+            decorators=decorators
+        )
 

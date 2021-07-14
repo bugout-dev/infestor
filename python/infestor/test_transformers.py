@@ -7,7 +7,7 @@ import libcst.matchers as m
 
 from . import config
 from . import transformers
-from .manage import add_reporter
+from .manager import add_reporter
 from .testcase import InfestorTestCase
 
 source1 = '''
@@ -146,12 +146,8 @@ source = source1
 source_tree = cst.metadata.MetadataWrapper(cst.parse_module(source))
 transformer = transformers.TryCatchTransformer("reporter")
 modified_tree = source_tree.visit(transformer)
-print(modified_tree.code)
+#print(modified_tree.code)
 
-print(
-    "".join(
-        difflib.unified_diff(source.splitlines(True), modified_tree.code.splitlines(True))
-    ))
 
 if __name__ == "__main__":
     unittest.main()

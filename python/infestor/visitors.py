@@ -1,10 +1,11 @@
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 
 import libcst.matchers as m
 import libcst as cst
 import logging
-
-from . import manage
+from . import models
+from . import manager
+from . import transformers
 
 
 class ReporterNotImported(Exception):
@@ -108,6 +109,43 @@ class ReporterFileVisitor(cst.CSTVisitor):
         return False
 
 
+class DecoratorCandidatesVisitor(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
+
+    def __init__(self, reporter_imported_as, decorator_type):
+        self.reporter_imported_as = reporter_imported_as
+        self.decorator_type = decorator_type
+        self.scope_stack: List[str] = []
+        self.decorator_candidates: List[models.ReporterDecoratorCandidate] = []
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> Optional[bool]:
+        self.scope_stack.append(node.name.value)
+
+        for decorator in node.decorators:
+            if transformers.matches_with_reporter_decorator(
+                    decorator, self.reporter_imported_as, self.decorator_type
+            ):
+                return True
+        position = self.get_metadata(cst.metadata.PositionProvider, node)
+        self.decorator_candidates.append(
+            models.ReporterDecoratorCandidate(
+                scope_stack=self.scope_stack,
+                lineno=position.start.line
+            )
+        )
+        return True
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
+        self.scope_stack.pop()
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> Optional[bool]:
+        self.scope_stack.append(node.name.value)
+        return True
+
+    def leave_ClassDef(self, original_node: cst.ClassDef) -> None:
+        self.scope_stack.pop()
+
+
 class PackageFileVisitor(cst.CSTVisitor):
     METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
     last_import_lineno = 0
@@ -115,22 +153,15 @@ class PackageFileVisitor(cst.CSTVisitor):
     def __init__(self, reporter_module_path: str, relative_imports: bool):
         self.ReporterImportedAs: str = ""
         self.ReporterImportedAt: int = -1
-        self.ReporterSystemCallAt: int = -1
-        self.ReporterExcepthookAt: int = -1
         self.ReporterCorrectlyImported: bool = False
 
         self.relative_imports = relative_imports
         self.reporter_module_path = reporter_module_path
-        self.decorators: List[Tuple[str, str, int]] = []
+        self.scope_stack: List[str] = []
 
-    def visit_FunctionDef(self, node: cst.FunctionDef):
-        for decorator in node.decorators:
-            position = self.get_metadata(cst.metadata.PositionProvider, decorator)
-            self.decorators.append((decorator.Name.value, node.name.value, position.start.line))
-        return False
+        self.calls: Dict[str, List[models.ReporterCall]] = {}
+        self.decorators: Dict[str, List[models.ReporterDecorator]] = {}
 
-    def visit_ClassDef(self, node: cst.ClassDef):
-        return False
     # TODO(yhtiyar) also add checking with 'import'
     def matches_with_package_import(self, node: cst.ImportFrom):
         return m.matches(
@@ -146,7 +177,7 @@ class PackageFileVisitor(cst.CSTVisitor):
             ),
         )
 
-    def matches_call(self, node: cst.Call, call_name: str):
+    def matches_reporter_call(self, node: cst.Call):
         return m.matches(
             node,
             m.Call(
@@ -154,20 +185,50 @@ class PackageFileVisitor(cst.CSTVisitor):
                     value=m.Name(
                         value=self.ReporterImportedAs
                     ),
-                    attr=m.Name(
-                        value=call_name
-                    ),
                 ),
             ),
         )
 
-    def matches_system_report_call(self, node: cst.Call):
-        return self.matches_call(node, manage.CALL_TYPE_SYSTEM_REPORT)
+    def matches_with_reporter_decorator(self, node: cst.Decorator):
+        return m.matches(
+            node,
+            m.Decorator(
+                decorator=m.Attribute(
+                    value=m.Name(
+                        value=self.ReporterImportedAs
+                    ),
+                )
+            )
+        )
 
-    def matches_setup_excepthook(self, node: cst.Call):
-        return self.matches_call(node, manage.CALL_TYPE_SETUP_EXCEPTHOOK)
+    def visit_FunctionDef(self, node: cst.FunctionDef):
+        self.scope_stack.append(node.name.value)
+        for decorator in node.decorators:
+            if self.matches_with_reporter_decorator(decorator):
+                position = self.get_metadata(cst.metadata.PositionProvider, decorator)
+                decorator_model = models.ReporterDecorator(
+                    decorator_type=decorator.decorator.attr.value,
+                    scope_stack=self.scope_stack.copy(),
+                    lineno=position.start.line
+                )
+                self.decorators\
+                    .setdefault(decorator.decorator.attr.value, [])\
+                    .append(decorator_model)
+        return True
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
+        self.scope_stack.pop()
+
+    def visit_ClassDef(self, node: cst.ClassDef):
+        self.scope_stack.append(node.name.value)
+        return True
+
+    def leave_ClassDef(self, original_node: cst.ClassDef) -> None:
+        self.scope_stack.pop()
 
     def visit_Import(self, node: cst.Import) -> Optional[bool]:
+        if self.scope_stack:
+            return False
         position = self.get_metadata(cst.metadata.PositionProvider, node)
         self.last_import_lineno = position.end.line
 
@@ -184,6 +245,8 @@ class PackageFileVisitor(cst.CSTVisitor):
                 self.ReporterCorrectlyImported = position.start.line == self.last_import_lineno + 1
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
+        if self.scope_stack:
+            return False
         position = self.get_metadata(cst.metadata.PositionProvider, node)
         if self.relative_imports:
             expected_level = 0
@@ -214,9 +277,11 @@ class PackageFileVisitor(cst.CSTVisitor):
     def visit_Call(self, node: cst.Call) -> Optional[bool]:
         if self.ReporterImportedAt == -1:
             return
-        if self.matches_system_report_call(node):
+        if self.matches_reporter_call(node):
             position = self.get_metadata(cst.metadata.PositionProvider, node)
-            self.ReporterSystemCallAt = position.start.line
-        elif self.matches_setup_excepthook(node):
-            position = self.get_metadata(cst.metadata.PositionProvider, node)
-            self.ReporterExcepthookAt = position.start.line
+            call_model = models.ReporterCall(
+                call_type=node.func.attr.value,
+                lineno=position.start.line,
+                scope_stack=self.scope_stack.copy()
+            )
+            self.calls.setdefault(node.func.attr.value, []).append(call_model)

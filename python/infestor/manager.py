@@ -1,13 +1,10 @@
-import ast
-import importlib.util
-import logging
+from typing import Tuple, List, Optional
 import os
-from typing import Any, cast, Dict, List, Optional, Tuple, Sequence
 import libcst as cst
-
-from . import  models
-from . import transformers
+import logging
 from . import visitors
+from . import transformers
+
 from .config import (
     default_config_file,
     load_config,
@@ -15,10 +12,10 @@ from .config import (
     python_root_relative_to_repository_root,
 )
 
-
 DEFAULT_REPORTER_FILENAME = "report.py"
 REPORTER_FILE_TEMPLATE: Optional[str] = None
 TEMPLATE_FILEPATH = os.path.join(os.path.dirname(__file__), "report.py.template")
+
 try:
     with open(TEMPLATE_FILEPATH, "r") as ifp:
         REPORTER_FILE_TEMPLATE = ifp.read()
@@ -33,12 +30,14 @@ CALL_TYPE_SETUP_EXCEPTHOOK = "setup_excepthook"
 DECORATOR_TYPE_RECORD_CALL = "record_call"
 DECORATOR_TYPE_RECORD_ERRORS = "record_errors"
 
+
 class GenerateReporterError(Exception):
     pass
 
 
-class GenerateDecoratorError(Exception):
+class GenerateConfigurationError(Exception):
     pass
+
 
 def get_reporter_module_path(
     repository: str, submodule_path: str
@@ -184,3 +183,47 @@ class PackageFileManager:
         modified_tree = self.syntax_tree.visit(transformer)
         self._visit(modified_tree)
 
+
+def add_reporter(
+    repository: str,
+    reporter_filepath: Optional[str] = None,
+    force: bool = False,
+) -> None:
+    if REPORTER_FILE_TEMPLATE is None:
+        raise GenerateReporterError("Could not load reporter template file")
+
+    config_file = default_config_file(repository)
+    configuration = load_config(config_file)
+
+    if reporter_filepath is None:
+        if configuration.reporter_filepath is not None:
+            reporter_filepath = configuration.reporter_filepath
+        else:
+            reporter_filepath = DEFAULT_REPORTER_FILENAME
+    else:
+        if (
+            configuration.reporter_filepath is not None
+            and configuration.reporter_filepath != reporter_filepath
+        ):
+            raise GenerateReporterError(
+                f"Configuration expects reporter to be set up at a different file than the one specified; specified={reporter_filepath}, expected={configuration.reporter_filepath}"
+            )
+
+    reporter_filepath_full = os.path.join(repository, reporter_filepath)
+    if (not force) and os.path.exists(reporter_filepath_full):
+        raise GenerateReporterError(
+            f"Object already exists at desired reporter filepath: {reporter_filepath_full}"
+        )
+
+    if configuration.reporter_token is None:
+        raise GenerateReporterError("No reporter token was specified in configuration")
+
+    contents = REPORTER_FILE_TEMPLATE.format(
+        project_name=configuration.project_name,
+        reporter_token=configuration.reporter_token,
+    )
+    with open(reporter_filepath_full, "w") as ofp:
+        ofp.write(contents)
+
+    configuration.reporter_filepath = reporter_filepath
+    save_config(config_file, configuration)

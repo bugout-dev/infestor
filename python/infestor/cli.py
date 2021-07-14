@@ -3,10 +3,9 @@ Command line interface for the Humbug infestor.
 """
 import argparse
 import os
-import sys
 from typing import Callable, Tuple
 
-from . import config, manage
+from . import config, operations
 
 CLIHandler = Callable[[argparse.Namespace], None]
 
@@ -55,7 +54,7 @@ def handle_config_token(args: argparse.Namespace) -> None:
     )
 
     if config_object.reporter_filepath is not None:
-        manage.add_reporter(
+        operations.add_reporter(
             args.repository,
             config_object.reporter_filepath,
             force=True,
@@ -65,7 +64,7 @@ def handle_config_token(args: argparse.Namespace) -> None:
 
 
 def handle_reporter_add(args: argparse.Namespace) -> None:
-    manage.add_reporter(args.repository, args.reporter_filepath, args.force)
+    operations.add_reporter(args.repository, args.reporter_filepath, args.force)
 
 
 def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIHandler]:
@@ -75,7 +74,7 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
     """
 
     def handle_list(args: argparse.Namespace) -> None:
-        results = manage.list_calls(call_type, args.repository)
+        results = operations.list_calls(call_type, args.repository)
         for filepath, calls_lineno in results.items():
             print(f"Lines in {filepath}:")
             for lineno in calls_lineno:
@@ -84,16 +83,16 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
     def handle_add(args: argparse.Namespace) -> None:
         # TODO(zomglings): Is there a better way to check if an argparse.Namespace has a given member?
         if vars(args).get("submodule") is not None:
-            manage.add_call(call_type, args.repository, args.submodule)
+            operations.add_call(call_type, args.repository, args.submodule)
         else:
-            manage.add_call(call_type, args.repository)
+            operations.add_call(call_type, args.repository)
 
     def handle_remove(args: argparse.Namespace) -> None:
         # TODO(zomglings): Ditto
         if vars(args).get("submodule") is not None:
-            manage.remove_calls(call_type, args.repository, args.submodule)
+            operations.remove_calls(call_type, args.repository, args.submodule)
         else:
-            manage.remove_calls(call_type, args.repository)
+            operations.remove_calls(call_type, args.repository)
 
     return (handle_list, handle_add, handle_remove)
 
@@ -107,16 +106,16 @@ def generate_decorator_handlers(
     """
 
     def handle_list(args: argparse.Namespace) -> None:
-        results = manage.list_decorators(decorator_type, args.repository)
+        results = operations.list_decorators(decorator_type, args.repository)
         for filepath, function_definitions in results.items():
             print(f"Lines in {filepath}:")
-            for decorated_function in function_definitions:
+            for decorated_function, lineno in function_definitions:
                 print(
-                    f"\t- (line {decorated_function.lineno}) {decorated_function.name}"
+                    f"\t- (line {lineno}) {decorated_function}"
                 )
 
     def handle_candidates(args: argparse.Namespace) -> None:
-        results = manage.decorator_candidates(
+        results = operations.decorator_candidates(
             decorator_type, args.repository, args.submodule
         )
         print(f"You can add the {decorator_type} decorator to the following functions:")
@@ -124,7 +123,7 @@ def generate_decorator_handlers(
             print(f"\t- (line {function_definition.lineno}) {function_definition.name}")
 
     def handle_add(args: argparse.Namespace) -> None:
-        manage.add_decorators(
+        operations.add_decorators(
             decorator_type,
             args.repository,
             args.submodule,
@@ -132,7 +131,7 @@ def generate_decorator_handlers(
         )
 
     def handle_remove(args: argparse.Namespace) -> None:
-        manage.remove_decorators(
+        operations.remove_decorators(
             decorator_type,
             args.repository,
             args.submodule,
@@ -219,8 +218,8 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         "-o",
         "--reporter-filepath",
         required=False,
-        default=manage.DEFAULT_REPORTER_FILENAME,
-        help=f"Path (relative to Python root) at which we should set up the reporter integration (default: {manage.DEFAULT_REPORTER_FILENAME})",
+        default=operations.DEFAULT_REPORTER_FILENAME,
+        help=f"Path (relative to Python root) at which we should set up the reporter integration (default: {operations.DEFAULT_REPORTER_FILENAME})",
     )
     reporter_add_parser.add_argument(
         "-f",
@@ -240,7 +239,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         handle_system_report_list,
         handle_system_report_add,
         handle_system_report_remove,
-    ) = generate_call_handlers(manage.CALL_TYPE_SYSTEM_REPORT)
+    ) = generate_call_handlers(operations.CALL_TYPE_SYSTEM_REPORT)
 
     system_report_list_parser = system_report_subcommands.add_parser(
         "list",
@@ -284,7 +283,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         handle_excepthook_list,
         handle_excepthook_add,
         handle_excepthook_remove,
-    ) = generate_call_handlers(manage.CALL_TYPE_SETUP_EXCEPTHOOK)
+    ) = generate_call_handlers(operations.CALL_TYPE_SETUP_EXCEPTHOOK)
 
     excepthook_list_parser = excepthook_subcommands.add_parser(
         "list",
@@ -318,7 +317,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         handle_record_call_candidates,
         handle_record_call_add,
         handle_record_call_remove,
-    ) = generate_decorator_handlers(manage.DECORATOR_TYPE_RECORD_CALL)
+    ) = generate_decorator_handlers(operations.DECORATOR_TYPE_RECORD_CALL)
 
     record_call_list_parser = record_call_subcommands.add_parser(
         "list",

@@ -1,0 +1,217 @@
+import os
+from typing import cast, Dict, List, Optional, Sequence
+from . import models
+from .manager import PackageFileManager
+
+
+class GenerateDecoratorError(Exception):
+    pass
+
+
+def python_files(repository: str) -> Sequence[str]:
+    results: List[str] = []
+    if os.path.isfile(repository):
+        return [repository]
+
+    for dirpath, _, filenames in os.walk(repository, topdown=True):
+        results.extend(
+            [
+                os.path.join(dirpath, filename)
+                for filename in filenames
+                if filename.endswith(".py")
+            ]
+        )
+
+    return results
+
+
+def list_calls(
+    call_type: str,
+    repository: str,
+    candidate_files: Optional[Sequence[str]] = None,
+) -> Dict[str, List[models.ReporterCall]]:
+    """
+    Args:
+    0. call_type - Type of call to list in the given package (e.g. "system_report", "setup_excepthook", etc.)
+    1. repository - Path to repository in which Infestor has been set up
+    2. candidate_files - Optional list of files to restrict analysis to
+    """
+    results: Dict[str, List[models.ReporterCall]] = {}
+    if candidate_files is None:
+        candidate_files = python_files(repository)
+
+    for filepath in candidate_files:
+        package_file_manager = PackageFileManager(repository, filepath)
+        results[filepath] = package_file_manager.get_calls(call_type)
+
+    return results
+
+
+def add_call(
+    call_type: str,
+    repository: str,
+    submodule_path: Optional[str] = None,
+) -> None:
+    """
+    Args:
+    0. call_type - Type of call to add to the given package (e.g. "system_report", "setup_excepthook", etc.)
+    1. repository - Path to repository in which Infestor has been set up
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    """
+    # Determine the file to which we should add the call
+    target_file = submodule_path
+    if target_file is None:
+        target_file = repository
+        if os.path.isdir(target_file):
+            target_file = os.path.join(target_file, "__init__.py")
+
+    if not os.path.exists(target_file):
+        with open(target_file, "w") as ofp:
+            ofp.write("")
+
+    package_file_manager = PackageFileManager(repository, target_file)
+    package_file_manager.add_reporter_import()
+    package_file_manager.add_call(call_type)
+    package_file_manager.write_to_file()
+
+
+def remove_calls(
+    call_type: str,
+    repository: str,
+    submodule_path: Optional[str] = None,
+) -> None:
+    """
+    Args:
+    0. call_type - Type of call to remove from the given package (e.g. "system_report", "setup_excepthook", etc.)
+    1. repository - Path to repository in which Infestor has been set up
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    """
+    candidate_files: Sequence[Optional[str]] = [submodule_path]
+    if submodule_path is None:
+        candidate_files = python_files(repository)
+    candidate_files = cast(Sequence[str], candidate_files)
+
+    for candidate_file in candidate_files:
+        package_file_manager = PackageFileManager(repository, candidate_file)
+        package_file_manager.remove_call(call_type)
+        package_file_manager.write_to_file()
+
+
+def list_decorators(
+    decorator_type: str,
+    repository: str,
+    candidate_files: Optional[Sequence[str]] = None,
+) -> Dict[str, List[models.ReporterDecorator]]:
+    """
+    Args:
+    0. decorator_type - Type of decorator to list in the given package (choices: "record_call", "record_error")
+    1. repository - Path to repository in which Infestor has been set up
+    2. python_root - Path (relative to repository) of Python package to work with (used to parse config)
+    3. candidate_files - Optional list of files to restrict analysis to
+
+    Returns a dictionary mapping file paths to functions defined in those files decorated by the given decorator_type method
+    on a managed Humbug reporter.
+    """
+    results: Dict[str, List[models.ReporterDecorator]] = {}
+
+    if candidate_files is None:
+        candidate_files = python_files(repository)
+
+    for candidate_file in candidate_files:
+        package_file_manager = PackageFileManager(repository, candidate_file)
+        results[candidate_file] = package_file_manager.list_decorators(decorator_type)
+
+    return results
+
+
+def decorator_candidates(
+    decorator_type: str,
+    repository: str,
+    submodule_path: str,
+) -> List[models.ReporterDecoratorCandidate]:
+    """
+    Args:
+    0. decorator_type - Type of decorator to add to the given package (choices: "record_call", "record_error")
+    1. repository - Path to repository in which Infestor has been set up
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+
+    Returns a list of tuples of the form:
+    (
+        <function name>,
+        <function definition starting line number>
+    )
+
+    This list is the list of candidate function definitions that the user could decorate (i.e. the ones which
+    do not already have a decorator of the given decorator_type).
+    """
+    package_file_manager = PackageFileManager(repository, submodule_path)
+    return package_file_manager.decorator_candidates(decorator_type)
+
+
+def add_decorators(
+    decorator_type: str,
+    repository: str,
+    submodule_path: str,
+    linenos: List[int],
+) -> None:
+    """
+    Args:
+    0. decorator_type - Type of decorator to add to the given package (choices: "record_call", "record_error")
+    1. repository - Path to repository in which Infestor has been set up
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    3. linenos: Line numbers where functions are defined that we wish to decorate
+    """
+
+    candidates = decorator_candidates(
+        decorator_type,
+        repository,
+        submodule_path
+    )
+
+    candidate_linenos = []
+    for candidate in candidates:
+        candidate_linenos.append(candidate.lineno)
+
+    for lineno in linenos:
+        if lineno not in candidate_linenos:
+            raise GenerateDecoratorError(
+                f"Non-candidate source code: submodule_path={submodule_path}, lineno={lineno}"
+            )
+
+    package_file_manager = PackageFileManager(repository, submodule_path)
+    package_file_manager.add_decorators(decorator_type, linenos)
+    package_file_manager.write_to_file()
+
+
+def remove_decorators(
+    decorator_type: str,
+    repository: str,
+    submodule_path: str,
+    linenos: List[int],
+) -> None:
+    """
+    Args:
+    0. decorator_type - Type of decorator to remove from the given package (choices: "record_call", "record_error")
+    1. repository - Path to repository in which Infestor has been set up
+    2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
+    3. linenos: Line numbers where decorated functions are defined that we wish to undecorate
+    """
+    candidates_for_removal = list_decorators(
+        decorator_type,
+        repository,
+        [submodule_path]
+    ).get(submodule_path, [])
+
+    candidate_linenos = []
+    for candidate in candidates_for_removal:
+        candidate_linenos.append(candidate.lineno)
+
+    for lineno in linenos:
+        if lineno not in candidate_linenos:
+            raise GenerateDecoratorError(
+                f"Could not undecorate invalid code at: submodule_path={submodule_path}, lineno={lineno}"
+            )
+
+    package_file_manager = PackageFileManager(repository, submodule_path)
+    package_file_manager.remove_decorators(decorator_type, linenos)
+

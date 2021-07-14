@@ -3,7 +3,7 @@ import unittest
 
 from . import config
 from . import visitors
-from .manage import add_reporter
+from .manager import add_reporter
 from .testcase import InfestorTestCase
 
 

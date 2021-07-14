@@ -4,7 +4,8 @@ import unittest
 
 import libcst as cst
 
-from . import manage
+from . import operations
+from . import manager
 from . import visitors
 from .testcase import InfestorTestCase
 
@@ -28,7 +29,7 @@ class TestSetupReporter(InfestorTestCase):
         reporter_filepath = os.path.join(self.package_dir, "report.py")
         self.assertFalse(os.path.exists(reporter_filepath))
 
-        manage.add_reporter(self.package_dir)
+        manager.add_reporter(self.package_dir)
 
         with open(self.config_file, "r") as ifp:
             infestor_json_new = json.load(ifp)
@@ -56,22 +57,22 @@ class TestSetupReporter(InfestorTestCase):
         )
 
     def test_system_report_add_with_no_reporter_added(self):
-        with self.assertRaises(manage.GenerateReporterError):
-            manage.add_call(
-                manage.CALL_TYPE_SYSTEM_REPORT,
+        with self.assertRaises(manager.GenerateReporterError):
+            operations.add_call(
+                manager.CALL_TYPE_SYSTEM_REPORT,
                 self.package_dir,
             )
 
     def test_list_system_reports_for_package_with_no_system_reports(self):
-        results = manage.list_calls_lineno(
-            manage.CALL_TYPE_SYSTEM_REPORT,
+        results = operations.list_calls(
+            manager.CALL_TYPE_SYSTEM_REPORT,
             self.package_dir,
         )
         self.assertDictEqual(results, {})
 
     def test_system_report_add(self):
-        manage.add_reporter(self.package_dir)
-        manage.add_call(manage.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
+        manager.add_reporter(self.package_dir)
+        operations.add_call(manager.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
 
         target_file = os.path.join(self.package_dir, "__init__.py")
 
@@ -79,7 +80,6 @@ class TestSetupReporter(InfestorTestCase):
         with open(target_file, "r") as ifp:
             for line in ifp:
                 source += line
-        print(source)
         source_tree = cst.metadata.MetadataWrapper(cst.parse_module(source))
         visitor = visitors.PackageFileVisitor(self.package_name+".report", False)
         source_tree.visit(visitor)
@@ -91,8 +91,8 @@ class TestSetupReporter(InfestorTestCase):
         )
 
         self.assertNotEqual(
-            visitor.ReporterSystemCallAt,
-            -1,
+            len(visitor.calls.get("system_report")),
+            0,
             "system_call not called"
         )
 
@@ -107,7 +107,7 @@ class TestSetupReporter(InfestorTestCase):
         )
         self.assertEqual(
             visitor.ReporterImportedAt,
-            visitor.ReporterSystemCallAt - 1,
+            visitor.calls.get("system_report")[0].lineno - 1,
             "system_call is not called right after import"
         )
 
