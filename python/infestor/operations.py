@@ -109,9 +109,12 @@ def remove_calls(
     1. repository - Path to repository in which Infestor has been set up
     2. submodule_path: Path (relative to python_root) of file in which we want to add a sytem_report
     """
-    candidate_files: Sequence[Optional[str]] = [submodule_path]
+    candidate_files: Sequence[str] = []
+
     if submodule_path is None:
         candidate_files = python_files(repository)
+    else:
+        candidate_files = [submodule_path]
 
     for candidate_file in candidate_files:
         package_file_manager = PackageFileManager(repository, candidate_file)

@@ -28,7 +28,7 @@ class ReporterFileVisitor(cst.CSTVisitor):
         self.HumbugReporterTokenArgument: str = ""
     
     @staticmethod
-    def syntax_tree(reporter_filepath: str) -> cst.Module:
+    def syntax_tree(reporter_filepath: str) -> cst.MetadataWrapper:
         with open(reporter_filepath, "r") as ifp:
             reporter_file_source = ifp.read()
         reporter_syntax_tree = cst.metadata.MetadataWrapper(cst.parse_module(reporter_file_source))
@@ -166,16 +166,18 @@ class PackageFileVisitor(cst.CSTVisitor):
     # TODO(yhtiyar) also add checking with 'import'
     def matches_with_package_import(self, node: cst.ImportFrom):
         return m.matches(
-            node.module,
-            m.Attribute(
-                value=m.Name(
-                    #TODO: Refactor this
-                    value=self.reporter_module_path.rsplit('.', 1)[0]  # checking for reporter module path basename
+            node,
+            m.ImportFrom(
+                module=m.Attribute(
+                    value=m.Name(
+                        # TODO: Refactor this
+                        value=self.reporter_module_path.rsplit('.', 1)[0]  # checking for reporter module path basename
+                    ),
+                    attr=m.Name(
+                        value="report"
+                    ),
                 ),
-                attr=m.Name(
-                    value="report"
-                ),
-            ),
+            )
         )
 
     def matches_reporter_call(self, node: cst.Call):
@@ -207,6 +209,7 @@ class PackageFileVisitor(cst.CSTVisitor):
         for decorator in node.decorators:
             if self.matches_with_reporter_decorator(decorator):
                 position = self.get_metadata(cst.metadata.PositionProvider, node)
+                assert isinstance(decorator.decorator, cst.Attribute)
                 decorator_model = models.ReporterDecorator(
                     decorator_type=decorator.decorator.attr.value,
                     scope_stack=".".join(self.scope_stack),
@@ -232,6 +235,7 @@ class PackageFileVisitor(cst.CSTVisitor):
             return False
         position = self.get_metadata(cst.metadata.PositionProvider, node)
         self.last_import_lineno = position.end.line
+        return False
 
     def check_alias_for_reporter(self, import_aliases, position):
         for alias in import_aliases:
@@ -264,6 +268,7 @@ class PackageFileVisitor(cst.CSTVisitor):
                     break
             if (
                     node_import_level == expected_level
+                    and isinstance(node.module, cst.Name)
                     and node.module.value == self.reporter_module_path[expected_level:]
             ):
                 import_aliases = node.names
@@ -274,15 +279,18 @@ class PackageFileVisitor(cst.CSTVisitor):
             self.check_alias_for_reporter(import_aliases, position)
 
         self.last_import_lineno = position.end.line
+        return False
 
     def visit_Call(self, node: cst.Call) -> Optional[bool]:
         if self.ReporterImportedAt == -1:
-            return
+            return False
         if self.matches_reporter_call(node):
             position = self.get_metadata(cst.metadata.PositionProvider, node)
+            assert isinstance(node.func, cst.Attribute)
             call_model = models.ReporterCall(
                 call_type=node.func.attr.value,
                 lineno=position.start.line,
                 scope_stack=".".join(self.scope_stack)
             )
-            self.calls.setdefault(node.func.attr.value, []).append(call_model)
+            self.calls.setdefault(call_model.call_type, []).append(call_model)
+        return False

@@ -64,7 +64,7 @@ except Error as e:
 '''
 
 
-def matches_error_report_call(node: cst.Call, except_as_name, reporter_imported_as):
+def matches_error_report_call(node: cst.CSTNode, except_as_name, reporter_imported_as):
     return m.matches(
         node,
         m.Call(
@@ -91,7 +91,7 @@ def matches_error_report_statement(node: cst.SimpleStatementLine, except_as_name
         m.SimpleStatementLine(
             body=[m.Expr(
                 value=m.MatchIfTrue(
-                    lambda value: matches_error_report_call(value, except_as_name)
+                    lambda value: matches_error_report_call(value, except_as_name, reporter_imported_as)
                 )
             )]
         )
@@ -108,6 +108,8 @@ class CheckExceptHandlerVisitor(cst.CSTVisitor):
             raise Exception("Missing except type")
         asname = None
         try:
+            assert isinstance(node.name, cst.AsName)
+            assert isinstance(node.name.name, cst.Name)
             asname = node.name.name.value
         except:
             raise Exception("Missing asname of exception")

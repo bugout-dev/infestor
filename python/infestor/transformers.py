@@ -1,13 +1,9 @@
-import os
-import pathlib
-from typing import Optional, List
+from typing import Optional, List, Union, cast
 
 import libcst as cst
 import libcst.matchers as m
 
-from . import config
 
-# TODO(yhtiyar): this is not working properly
 def matches_import(node: cst.CSTNode) -> bool:
     return m.matches(
         node,
@@ -25,7 +21,7 @@ class ImportReporterTransformer(cst.CSTTransformer):
     """
     def __init__(self, reporter_module_path):
         self.reporter_import_code = f"from {reporter_module_path} import reporter"
-        self.last_import = None
+        self.last_import: Optional[cst.CSTNode] = None
 
     def visit_Module(self, node: cst.Module) -> Optional[bool]:
         for statement in node.body:
@@ -34,7 +30,7 @@ class ImportReporterTransformer(cst.CSTTransformer):
         return False
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
-        new_body = []
+        new_body: List[cst.CSTNode] = []
 
         parsed_reporter_import = cst.parse_statement(
                     self.reporter_import_code,
@@ -46,7 +42,7 @@ class ImportReporterTransformer(cst.CSTTransformer):
 
         for el in original_node.body:
             new_body.append(el)
-            if el == self.last_import:
+            if self.last_import and el == self.last_import:
                 new_body.append(parsed_reporter_import)
 
         return updated_node.with_changes(
@@ -73,7 +69,7 @@ class ReporterCallsAdderTransformer(cst.CSTTransformer):
                 )
             ]
         )
-        self.last_import = None
+        self.last_import: Optional[cst.CSTNode] = None
 
     def visit_Module(self, node: cst.Module) -> Optional[bool]:
         for statement in node.body:
@@ -156,7 +152,7 @@ class TryCatchTransformer(cst.CSTTransformer):
             )
         )
 
-    def matches_error_report_call(self, node: cst.Call, except_as_name):
+    def matches_error_report_call(self, node: cst.CSTNode, except_as_name):
         return m.matches(
             node,
             m.Call(
@@ -188,7 +184,9 @@ class TryCatchTransformer(cst.CSTTransformer):
             )
         )
 
-    def leave_ExceptHandler(self, node: cst.ExceptHandler, updated_node: cst.ExceptHandler) -> cst.CSTNode:
+    def leave_ExceptHandler(
+            self, node: cst.ExceptHandler, updated_node: cst.ExceptHandler
+    ) -> Union[cst.ExceptHandler, cst.FlattenSentinel[cst.ExceptHandler], cst.RemovalSentinel]:
         asname = "e"
         new_name = node.name
         except_type = node.type
@@ -197,7 +195,10 @@ class TryCatchTransformer(cst.CSTTransformer):
             except_type = cst.Name(value="Exception")
 
         if self.has_except_asname(node):
-            asname = node.name.name.value
+            # Casting to types, since getting errors in mypy
+            _asname = cast(cst.AsName, node.name)
+            name = cast(cst.Name, _asname.name)
+            asname = name.value
         else:
             new_name = cst.AsName(name=cst.Name(value=asname))
 
