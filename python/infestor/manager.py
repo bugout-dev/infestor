@@ -43,14 +43,24 @@ def get_reporter_module_path(
         if base == os.path.basename(reporter_filepath):
             base, _ = os.path.splitext(base)
         path_components = [base] + path_components
+    # TODO: path components for .../fixtures/a_script looks
+    #  like ['..', 'report'], for /fixtures/a_package: ['..', '..', 'report']
+    #  so am making '..' to '.' to make it work
 
     name: Optional[str] = None
     if not configuration.relative_imports:
         path_components = [os.path.basename(repository)] + path_components
-        name = ".".join(path_components)
+        name = f"{os.path.basename(repository)}.{path_components[-1]}"
+        # name = ".".join(path_components)
 
     else:
-        name = "." + ".".join(path_components)
+        name = "."
+        for comp in path_components:
+            if comp == "..":
+                name += "."
+            else:
+                name += comp
+        # name = "." + ".".join(path_components)
 
     return (name, configuration.relative_imports)
 
