@@ -75,10 +75,10 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
 
     def handle_list(args: argparse.Namespace) -> None:
         results = operations.list_calls(call_type, args.repository)
-        for filepath, calls_lineno in results.items():
+        for filepath, calls in results.items():
             print(f"Lines in {filepath}:")
-            for lineno in calls_lineno:
-                print(f"\t- {lineno}")
+            for call in calls:
+                print(f"\t- {call.lineno} {call.scope_stack}")
 
     def handle_add(args: argparse.Namespace) -> None:
         # TODO(zomglings): Is there a better way to check if an argparse.Namespace has a given member?
@@ -107,11 +107,11 @@ def generate_decorator_handlers(
 
     def handle_list(args: argparse.Namespace) -> None:
         results = operations.list_decorators(decorator_type, args.repository)
-        for filepath, function_definitions in results.items():
+        for filepath, decorators in results.items():
             print(f"Lines in {filepath}:")
-            for decorated_function, lineno in function_definitions:
+            for decorator in decorators:
                 print(
-                    f"\t- (line {lineno}) {decorated_function}"
+                    f"\t- (line {decorator.lineno}) {decorator.scope_stack}"
                 )
 
     def handle_candidates(args: argparse.Namespace) -> None:
@@ -119,8 +119,8 @@ def generate_decorator_handlers(
             decorator_type, args.repository, args.submodule
         )
         print(f"You can add the {decorator_type} decorator to the following functions:")
-        for function_definition in results:
-            print(f"\t- (line {function_definition.lineno}) {function_definition.name}")
+        for candidate in results:
+            print(f"\t- (line {candidate.lineno}) {candidate.scope_stack}")
 
     def handle_add(args: argparse.Namespace) -> None:
         operations.add_decorators(

@@ -206,7 +206,7 @@ class PackageFileVisitor(cst.CSTVisitor):
         self.scope_stack.append(node.name.value)
         for decorator in node.decorators:
             if self.matches_with_reporter_decorator(decorator):
-                position = self.get_metadata(cst.metadata.PositionProvider, decorator)
+                position = self.get_metadata(cst.metadata.PositionProvider, node)
                 decorator_model = models.ReporterDecorator(
                     decorator_type=decorator.decorator.attr.value,
                     scope_stack=".".join(self.scope_stack),

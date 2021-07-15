@@ -19,14 +19,6 @@ def matches_import(node: cst.CSTNode) -> bool:
     )
 
 
-class ImportReporterError(Exception):
-    """
-    This error is raised when the ImportReporterTransformer fails to ensure that a reporter is
-    imported in a module.
-    """
-    pass
-
-
 class ImportReporterTransformer(cst.CSTTransformer):
     """
     Imports reporter from reporter_module_path path after last naked import
@@ -109,16 +101,21 @@ class ReporterCallsRemoverTransformer(cst.CSTTransformer):
     def matches_reporter_call(self, node: cst.CSTNode):
         return m.matches(
             node,
-            m.Call(
-                func=m.Attribute(
-                    value=m.Name(
-                        value=self.reporter_imported_as
+            m.SimpleStatementLine(
+                body=[m.Expr(
+                    value=m.Call(
+                        func=m.Attribute(
+                            value=m.Name(
+                                value=self.reporter_imported_as
+                            ),
+                            attr=m.Name(
+                                value=self.call_type
+                            )
+                        ),
                     ),
-                    attr=m.Name(
-                        value=self.call_type
-                    )
-                ),
-            ),
+                )]
+            )
+
         )
 
     def __init__(
@@ -290,6 +287,8 @@ class DecoratorsAdderTransformer(cst.CSTTransformer):
 
 
 class DecoratorsRemoverTransformer(cst.CSTTransformer):
+    METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
+
     def __init__(
             self,
             reporter_imported_as,

@@ -8,11 +8,4 @@ try:
 except Exception:
     pass
 
-# TODO (yhtiyar):
-# In PackageFileManager make checking call by call_type not by hard coding
-# Add Decorator adder transformer,
-# Add DecoratorRemoverTransformer, integrate it to PackageFileManager
-# Improve RemoveCallsTransformer : it is now removing by source
-# Add unittests for : listing calls/decorators, RemoveCallTransformer,
-# tests with remove relative import testcase
 

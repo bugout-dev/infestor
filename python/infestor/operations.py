@@ -94,7 +94,6 @@ def add_call(
             ofp.write("")
 
     package_file_manager = PackageFileManager(repository, target_file)
-    package_file_manager.add_reporter_import()
     package_file_manager.add_call(call_type)
     package_file_manager.write_to_file()
 
@@ -113,7 +112,6 @@ def remove_calls(
     candidate_files: Sequence[Optional[str]] = [submodule_path]
     if submodule_path is None:
         candidate_files = python_files(repository)
-    candidate_files = cast(Sequence[str], candidate_files)
 
     for candidate_file in candidate_files:
         package_file_manager = PackageFileManager(repository, candidate_file)
@@ -143,7 +141,9 @@ def list_decorators(
 
     for candidate_file in candidate_files:
         package_file_manager = PackageFileManager(repository, candidate_file)
-        results[candidate_file] = package_file_manager.list_decorators(decorator_type)
+        decorators = package_file_manager.list_decorators(decorator_type)
+        if decorators:
+            results[candidate_file] = decorators
 
     return results
 
@@ -238,6 +238,7 @@ def remove_decorators(
 
     package_file_manager = PackageFileManager(repository, submodule_path)
     package_file_manager.remove_decorators(decorator_type, linenos)
+    package_file_manager.write_to_file()
 
 
 def add_reporter(

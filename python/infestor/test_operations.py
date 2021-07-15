@@ -1,11 +1,8 @@
 import json
 import os
 import unittest
-
 import libcst as cst
-
 from . import operations
-from . import manager
 from . import visitors
 from .testcase import InfestorTestCase
 
@@ -71,6 +68,92 @@ class TestSetupReporter(InfestorTestCase):
         )
         self.assertDictEqual(results, {})
 
+    def test_decorator_list_with_no_reporter_decorators(self):
+        operations.add_reporter(self.package_dir)
+        results = operations.list_decorators(
+            operations.DECORATOR_TYPE_RECORD_ERRORS,
+            self.package_dir
+        )
+        self.assertDictEqual(results, {})
+
+    def test_decorator_add_remove(self):
+        operations.add_reporter(self.package_dir)
+        target_file = os.path.join(self.package_dir, "cli.py")
+        candidates = operations.decorator_candidates(
+            operations.DECORATOR_TYPE_RECORD_ERRORS,
+            self.package_dir,
+            target_file
+        )
+        self.assertNotEqual(
+            len(candidates),
+            0,
+            "Failed to find decorator candidates"
+        )
+        linenos = []
+        for candidate in candidates:
+            linenos.append(candidate.lineno)
+
+        operations.add_decorators(
+            operations.DECORATOR_TYPE_RECORD_ERRORS,
+            self.package_dir,
+            target_file,
+            linenos
+        )
+
+        new_candidates = operations.decorator_candidates(
+            operations.DECORATOR_TYPE_RECORD_ERRORS,
+            self.package_dir,
+            target_file
+        )
+
+        self.assertEqual(
+            len(new_candidates),
+            0,
+            "Failed to decorate all candidates"
+        )
+
+        decorators = operations.list_decorators(
+            operations.DECORATOR_TYPE_RECORD_ERRORS,
+            self.package_dir,
+            [target_file]
+        )
+
+        self.assertNotEqual(
+            decorators,
+            {},
+            "Failed to list decorators"
+        )
+
+        self.assertEqual(
+            len(decorators[target_file]),
+            len(candidates),
+            "Failed to list all decorators"
+        )
+
+        linenos = []
+        for decorator in decorators[target_file]:
+            linenos.append(decorator.lineno)
+
+        operations.remove_decorators(
+            operations.DECORATOR_TYPE_RECORD_ERRORS,
+            self.package_dir,
+            target_file,
+            linenos
+        )
+
+        decorators = operations.list_decorators(
+            operations.DECORATOR_TYPE_RECORD_ERRORS,
+            self.package_dir,
+            [target_file]
+        )
+
+        self.assertEqual(
+            decorators,
+            {},
+            "Failed to remove decorators"
+        )
+
+
     def test_system_report_add(self):
         operations.add_reporter(self.package_dir)
         operations.add_call(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
@@ -112,6 +195,16 @@ class TestSetupReporter(InfestorTestCase):
             visitor.calls.get("system_report")[0].lineno - 1,
             "system_call is not called right after import"
         )
+
+    def test_system_report_remove(self):
+        operations.add_reporter(self.package_dir)
+        operations.add_call(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
+        calls = operations.list_calls(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
+        self.assertNotEqual(calls, {}, "Failed to add system_report call")
+
+        operations.remove_calls(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
+        calls = operations.list_calls(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
+        self.assertEqual(calls, {}, "Failed to remove system_report call")
 
 
 if __name__ == "__main__":

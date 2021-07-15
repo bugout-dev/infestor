@@ -85,18 +85,9 @@ class PackageFileManager:
     def is_reporter_imported(self) -> bool:
         return self.visitor.ReporterImportedAt != -1 and self.visitor.ReporterImportedAs != ""
 
-    def ensure_reporter_imported(self) -> bool:
+    def ensure_import_reporter(self):
         if not self.is_reporter_imported():
-            raise Exception("reporter not imported")
-        return True
-
-    def get_reporter_import_lineno(self) -> int:
-        self.ensure_reporter_imported()
-        return self.visitor.ReporterImportedAt
-
-    def get_reporter_import_asname(self) -> str:
-        self.ensure_reporter_imported()
-        return self.visitor.ReporterImportedAs
+            self.add_reporter_import()
 
     def add_reporter_import(self) -> None:
         if self.is_reporter_imported():
@@ -111,6 +102,7 @@ class PackageFileManager:
     def add_call(self, call_type):
         if self.get_calls(call_type):
             return
+        self.ensure_import_reporter()
         transformer = transformers.ReporterCallsAdderTransformer(
             self.visitor.ReporterImportedAs,
             call_type
@@ -139,6 +131,12 @@ class PackageFileManager:
         return decorator_candidates_visitor.decorator_candidates
 
     def add_decorators(self, decorator_type: str, linenos: List[int]):
+        if not self.is_reporter_imported():
+            # Reporter not importer, we need to add reporter
+            self.add_reporter_import()
+            # Since we added reporter, source has changed and
+            # all linenos need to be increased by 1
+            linenos = [x + 1 for x in linenos]
         transformer = transformers.DecoratorsAdderTransformer(
             self.visitor.ReporterImportedAs,
             decorator_type,
