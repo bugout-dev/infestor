@@ -31,4 +31,5 @@ setup(
     ],
     url="https://github.com/bugout-dev/infestor",
     entry_points={"console_scripts": ["infestor=infestor.cli:main"]},
+    include_package_data=True,
 )
