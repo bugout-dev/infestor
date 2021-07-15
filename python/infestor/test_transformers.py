@@ -7,7 +7,7 @@ import libcst.matchers as m
 
 from . import config
 from . import transformers
-from .manager import add_reporter
+from .operations import add_reporter
 from .testcase import InfestorTestCase
 
 source1 = '''

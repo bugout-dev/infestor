@@ -126,10 +126,11 @@ class DecoratorCandidatesVisitor(cst.CSTVisitor):
                     decorator, self.reporter_imported_as, self.decorator_type
             ):
                 return True
+
         position = self.get_metadata(cst.metadata.PositionProvider, node)
         self.decorator_candidates.append(
             models.ReporterDecoratorCandidate(
-                scope_stack=self.scope_stack,
+                scope_stack=".".join(self.scope_stack),
                 lineno=position.start.line
             )
         )
@@ -208,7 +209,7 @@ class PackageFileVisitor(cst.CSTVisitor):
                 position = self.get_metadata(cst.metadata.PositionProvider, decorator)
                 decorator_model = models.ReporterDecorator(
                     decorator_type=decorator.decorator.attr.value,
-                    scope_stack=self.scope_stack.copy(),
+                    scope_stack=".".join(self.scope_stack),
                     lineno=position.start.line
                 )
                 self.decorators\
@@ -282,6 +283,6 @@ class PackageFileVisitor(cst.CSTVisitor):
             call_model = models.ReporterCall(
                 call_type=node.func.attr.value,
                 lineno=position.start.line,
-                scope_stack=self.scope_stack.copy()
+                scope_stack=".".join(self.scope_stack)
             )
             self.calls.setdefault(node.func.attr.value, []).append(call_model)

@@ -29,7 +29,7 @@ class TestSetupReporter(InfestorTestCase):
         reporter_filepath = os.path.join(self.package_dir, "report.py")
         self.assertFalse(os.path.exists(reporter_filepath))
 
-        manager.add_reporter(self.package_dir)
+        operations.add_reporter(self.package_dir)
 
         with open(self.config_file, "r") as ifp:
             infestor_json_new = json.load(ifp)
@@ -57,22 +57,23 @@ class TestSetupReporter(InfestorTestCase):
         )
 
     def test_system_report_add_with_no_reporter_added(self):
-        with self.assertRaises(manager.GenerateReporterError):
+        with self.assertRaises(operations.GenerateReporterError):
             operations.add_call(
-                manager.CALL_TYPE_SYSTEM_REPORT,
+                operations.CALL_TYPE_SYSTEM_REPORT,
                 self.package_dir,
             )
 
     def test_list_system_reports_for_package_with_no_system_reports(self):
+        operations.add_reporter(self.package_dir)
         results = operations.list_calls(
-            manager.CALL_TYPE_SYSTEM_REPORT,
+            operations.CALL_TYPE_SYSTEM_REPORT,
             self.package_dir,
         )
         self.assertDictEqual(results, {})
 
     def test_system_report_add(self):
-        manager.add_reporter(self.package_dir)
-        operations.add_call(manager.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
+        operations.add_reporter(self.package_dir)
+        operations.add_call(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
 
         target_file = os.path.join(self.package_dir, "__init__.py")
 
@@ -80,6 +81,7 @@ class TestSetupReporter(InfestorTestCase):
         with open(target_file, "r") as ifp:
             for line in ifp:
                 source += line
+
         source_tree = cst.metadata.MetadataWrapper(cst.parse_module(source))
         visitor = visitors.PackageFileVisitor(self.package_name+".report", False)
         source_tree.visit(visitor)

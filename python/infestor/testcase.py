@@ -1,3 +1,4 @@
+import enum
 import glob
 import os
 import shutil
@@ -10,6 +11,7 @@ import pygit2
 
 from . import commit
 from . import config
+
 
 class InfestorTestCase(unittest.TestCase):
     def setUp(self):

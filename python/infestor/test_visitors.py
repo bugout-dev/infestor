@@ -3,7 +3,7 @@ import unittest
 
 from . import config
 from . import visitors
-from .manager import add_reporter
+from .operations import add_reporter
 from .testcase import InfestorTestCase
 
 
@@ -30,8 +30,10 @@ class TestReporterFileVisitor(InfestorTestCase):
         self.assertNotEqual(visitor.HumbugReporterTokenArgument, "")
 
 
-class TestPackageFileVisitor(InfestorTestCase):
-    pass
+class TestPackageFileVisitor(unittest.TestCase):
+    def setUp(self):
+        self.source = ""
+
 
 
 if __name__ == "__main__":
