@@ -67,7 +67,7 @@ def handle_reporter_add(args: argparse.Namespace) -> None:
     operations.add_reporter(args.repository, args.reporter_filepath, args.force)
 
 
-def handle_report_everything(args: argparse.Namespace) -> None:
+def handle_report_all(args: argparse.Namespace) -> None:
     operations.add_call(
         operations.CALL_TYPE_SYSTEM_REPORT,
         args.repository
@@ -123,7 +123,7 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
         for filepath, calls in results.items():
             print(f"Lines in {filepath}:")
             for call in calls:
-                print(f"\t- {call.lineno} {call.scope_stack}")
+                print(f"\t- (line {call.lineno}) {call.scope_stack}")
 
     def handle_add(args: argparse.Namespace) -> None:
         # TODO(zomglings): Is there a better way to check if an argparse.Namespace has a given member?
@@ -493,7 +493,12 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     )
     record_error_remove_parser.set_defaults(func=handle_record_error_remove)
 
-
+    report_all_parser = subcommands.add_parser(
+        "report-all",
+        description="Report all that can be reported "
+    )
+    populate_leaf_parser_with_common_args(report_all_parser)
+    report_all_parser.set_defaults(func=handle_report_all)
 
     return parser
 
