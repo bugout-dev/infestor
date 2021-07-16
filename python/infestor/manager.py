@@ -165,11 +165,11 @@ class PackageFileManager:
         self._visit(modified_tree)
         if decorator_type == DECORATOR_TYPE_RECORD_ERRORS:
             # We've added decorator which shifts linenos
-            transformer = transformers.TryExceptAdderTransformer(
+            try_except_transformer = transformers.TryExceptAdderTransformer(
                 self.visitor.ReporterImportedAs,
                 [x + 1 for x in func_linenos]
             )
-            modified_tree = self.syntax_tree.visit(transformer)
+            modified_tree = self.syntax_tree.visit(try_except_transformer)
             self._visit(modified_tree)
 
     def remove_decorators(self, decorator_type: str, linenos: List[int]):
