@@ -67,6 +67,51 @@ def handle_reporter_add(args: argparse.Namespace) -> None:
     operations.add_reporter(args.repository, args.reporter_filepath, args.force)
 
 
+def handle_report_everything(args: argparse.Namespace) -> None:
+    operations.add_call(
+        operations.CALL_TYPE_SYSTEM_REPORT,
+        args.repository
+    )
+    operations.add_call(
+        operations.CALL_TYPE_SETUP_EXCEPTHOOK,
+        args.repository
+    )
+
+    files = operations.python_files(args.repository)
+    for file in files:
+        candidates = operations.decorator_candidates(
+            operations.DECORATOR_TYPE_RECORD_ERRORS,
+            args.repository,
+            file
+        )
+        candidate_linenos = []
+        for candidate in candidates:
+            candidate_linenos.append(candidate.lineno)
+        if candidate_linenos:
+            operations.add_decorators(
+                operations.DECORATOR_TYPE_RECORD_ERRORS,
+                args.repository,
+                file,
+                candidate_linenos
+            )
+    for file in files:
+        candidates = operations.decorator_candidates(
+            operations.DECORATOR_TYPE_RECORD_CALL,
+            args.repository,
+            file
+        )
+        candidate_linenos = []
+        for candidate in candidates:
+            candidate_linenos.append(candidate.lineno)
+        if candidate_linenos:
+            operations.add_decorators(
+                operations.DECORATOR_TYPE_RECORD_CALL,
+                args.repository,
+                file,
+                candidate_linenos
+            )
+
+
 def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIHandler]:
     """
     Returns a tuple of the form:
@@ -376,6 +421,79 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         help="Line numbers of function definitions to decorate",
     )
     record_call_remove_parser.set_defaults(func=handle_record_call_remove)
+
+    record_error_parser = subcommands.add_parser(
+        "record-error", description="Record function/method's caught and uncaught errors"
+    )
+    record_error_parser.set_defaults(func=lambda _: record_error_parser.print_help())
+    record_error_subcommands = record_error_parser.add_subparsers()
+
+    (
+        handle_record_error_list,
+        handle_record_error_candidates,
+        handle_record_error_add,
+        handle_record_error_remove,
+    ) = generate_decorator_handlers(operations.DECORATOR_TYPE_RECORD_ERRORS)
+
+    record_error_list_parser = record_error_subcommands.add_parser(
+        "list",
+        description="List all functions/methods which are currently being recorded",
+    )
+    populate_leaf_parser_with_common_args(record_error_list_parser)
+    record_error_list_parser.set_defaults(func=handle_record_error_list)
+
+    record_error_candidates_parser = record_error_subcommands.add_parser(
+        "candidates",
+        description="List all functions/methods in the given submodule on which we can add the decorator",
+    )
+    populate_leaf_parser_with_common_args(record_error_candidates_parser)
+    record_error_candidates_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_error_candidates_parser.set_defaults(func=handle_record_error_candidates)
+
+    record_error_add_parser = record_error_subcommands.add_parser(
+        "add",
+        description="Adds reporting code to a given module",
+    )
+    populate_leaf_parser_with_common_args(record_error_add_parser)
+    record_error_add_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_error_add_parser.add_argument(
+        "lines",
+        type=int,
+        nargs="+",
+        help="Line numbers of function definitions to decorate",
+    )
+    record_error_add_parser.set_defaults(func=handle_record_error_add)
+
+    record_error_remove_parser = record_error_subcommands.add_parser(
+        "remove",
+        description="List all functions/methods which are currently being recorded",
+    )
+    populate_leaf_parser_with_common_args(record_error_remove_parser)
+    record_error_remove_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_error_remove_parser.add_argument(
+        "lines",
+        type=int,
+        nargs="+",
+        help="Line numbers of function definitions to decorate",
+    )
+    record_error_remove_parser.set_defaults(func=handle_record_error_remove)
+
+
 
     return parser
 
