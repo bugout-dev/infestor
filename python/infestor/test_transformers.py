@@ -143,13 +143,6 @@ class TestImportReporterTransformer(InfestorTestCase):
         self.package_transformer = transformers.ImportReporterTransformer(self.package_dir)
 
 
-source = source1
-
-source_tree = cst.metadata.MetadataWrapper(cst.parse_module(source))
-transformer = transformers.TryCatchTransformer("reporter")
-modified_tree = source_tree.visit(transformer)
-#print(modified_tree.code)
-
 
 if __name__ == "__main__":
     unittest.main()

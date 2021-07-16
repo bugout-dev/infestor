@@ -3,7 +3,13 @@ import os
 from typing import cast, Dict, List, Optional, Sequence
 from . import models
 from .errors import *
-from .manager import PackageFileManager
+from .manager import (
+    PackageFileManager,
+    DECORATOR_TYPE_RECORD_ERRORS,
+    DECORATOR_TYPE_RECORD_CALL,
+    CALL_TYPE_SETUP_EXCEPTHOOK,
+    CALL_TYPE_SYSTEM_REPORT
+)
 from .config import (
     default_config_file,
     load_config,
@@ -21,13 +27,6 @@ try:
 except Exception as e:
     logging.warn(f"WARNING: Could not load reporter template from {TEMPLATE_FILEPATH}:")
     logging.warn(e)
-
-# TODO(zomglings): Use an Enum here.
-CALL_TYPE_SYSTEM_REPORT = "system_report"
-CALL_TYPE_SETUP_EXCEPTHOOK = "setup_excepthook"
-
-DECORATOR_TYPE_RECORD_CALL = "record_call"
-DECORATOR_TYPE_RECORD_ERRORS = "record_errors"
 
 
 def python_files(repository: str) -> Sequence[str]:

@@ -11,6 +11,13 @@ from .config import (
     python_root_relative_to_repository_root,
 )
 
+# TODO(zomglings): Use an Enum here.
+CALL_TYPE_SYSTEM_REPORT = "system_report"
+CALL_TYPE_SETUP_EXCEPTHOOK = "setup_excepthook"
+
+DECORATOR_TYPE_RECORD_CALL = "record_call"
+DECORATOR_TYPE_RECORD_ERRORS = "record_errors"
+
 
 def get_reporter_module_path(
     repository: str, submodule_path: str
@@ -141,19 +148,29 @@ class PackageFileManager:
         return decorator_candidates_visitor.decorator_candidates
 
     def add_decorators(self, decorator_type: str, linenos: List[int]):
+        func_linenos = linenos
         if not self.is_reporter_imported():
             # Reporter not importer, we need to add reporter
             self.add_reporter_import()
             # Since we added reporter, source has changed and
             # all linenos need to be increased by 1
-            linenos = [x + 1 for x in linenos]
+            func_linenos = [x + 1 for x in func_linenos]
+
         transformer = transformers.DecoratorsAdderTransformer(
             self.visitor.ReporterImportedAs,
             decorator_type,
-            linenos
+            func_linenos
         )
         modified_tree = self.syntax_tree.visit(transformer)
         self._visit(modified_tree)
+        if decorator_type == DECORATOR_TYPE_RECORD_ERRORS:
+            # We've added decorator which shifts linenos
+            transformer = transformers.TryExceptAdderTransformer(
+                self.visitor.ReporterImportedAs,
+                [x + 1 for x in func_linenos]
+            )
+            modified_tree = self.syntax_tree.visit(transformer)
+            self._visit(modified_tree)
 
     def remove_decorators(self, decorator_type: str, linenos: List[int]):
         transformer = transformers.DecoratorsRemoverTransformer(
@@ -164,3 +181,10 @@ class PackageFileManager:
         modified_tree = self.syntax_tree.visit(transformer)
         self._visit(modified_tree)
 
+        if decorator_type == DECORATOR_TYPE_RECORD_ERRORS:
+            transformer = transformers.TryExceptRemoverTransformer(
+                self.visitor.ReporterImportedAs,
+                [x - 1 for x in linenos]
+            )
+            modified_tree = self.syntax_tree.visit(transformer)
+            self._visit(modified_tree)

@@ -135,12 +135,16 @@ class ReporterCallsRemoverTransformer(cst.CSTTransformer):
         )
 
 
-ERROR_REPORT_CODE = "error_report"
+ERROR_REPORT_CALL= "error_report"
 
 
-class TryCatchTransformer(cst.CSTTransformer):
-    def __init__(self, reported_imported_as: str):
+class TryExceptAdderTransformer(cst.CSTTransformer):
+    METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
+
+    def __init__(self, reported_imported_as: str, linenos: List[int]):
         self.reporter_imported_as = reported_imported_as
+        self.linenos = linenos
+        self.func_scope: List[int] = []
 
     def has_except_asname(self, node: cst.ExceptHandler):
         return m.matches(
@@ -161,7 +165,7 @@ class TryCatchTransformer(cst.CSTTransformer):
                         value=self.reporter_imported_as
                     ),
                     attr=m.Name(
-                        value="error_report"
+                        value=ERROR_REPORT_CALL
                     ),
                 ),
                 args=[m.Arg(
@@ -184,15 +188,31 @@ class TryCatchTransformer(cst.CSTTransformer):
             )
         )
 
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> Optional[bool]:
+        position = self.get_metadata(cst.metadata.PositionProvider, node)
+        self.func_scope.append(position.start.line)
+        return True
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> Union[cst.BaseStatement, cst.FlattenSentinel[cst.BaseStatement], cst.RemovalSentinel]:
+        self.func_scope.pop()
+        return updated_node
+
     def leave_ExceptHandler(
             self, node: cst.ExceptHandler, updated_node: cst.ExceptHandler
     ) -> Union[cst.ExceptHandler, cst.FlattenSentinel[cst.ExceptHandler], cst.RemovalSentinel]:
+        if not self.func_scope:
+            return updated_node
+        if self.func_scope[-1] not in self.linenos:
+            return updated_node
+
         asname = "e"
         new_name = node.name
         except_type = node.type
 
         if except_type is None:
-            except_type = cst.Name(value="Exception")
+            except_type = cst.Name(value="BaseException")
 
         if self.has_except_asname(node):
             # Casting to types, since getting errors in mypy
@@ -213,10 +233,12 @@ class TryCatchTransformer(cst.CSTTransformer):
                 has_called_error_report = True
 
         if not has_called_error_report:
-            new_inner_body.append(
+            new_inner_body.insert(
+                0,
                 cst.parse_statement(
-                    f"{self.reporter_imported_as}.{ERROR_REPORT_CODE}({asname})"
-                ))
+                    f"{self.reporter_imported_as}.{ERROR_REPORT_CALL}({asname})"
+                )
+            )
         new_body = updated_node.body.with_changes(
             body=new_inner_body
         )
@@ -228,6 +250,109 @@ class TryCatchTransformer(cst.CSTTransformer):
             whitespace_after_except=cst.SimpleWhitespace(
              value=' ',
             ),
+        )
+
+
+class TryExceptRemoverTransformer(cst.CSTTransformer):
+    METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
+
+    def __init__(self, reported_imported_as: str, linenos: List[int]):
+        self.reporter_imported_as = reported_imported_as
+        self.linenos = linenos
+        self.func_scope: List[int] = []
+
+    def has_except_asname(self, node: cst.ExceptHandler):
+        return m.matches(
+            node,
+            m.ExceptHandler(
+                name=m.AsName(
+                    name=m.Name()
+                )
+            )
+        )
+
+    def matches_error_report_call(self, node: cst.CSTNode, except_as_name):
+        return m.matches(
+            node,
+            m.Call(
+                func=m.Attribute(
+                    value=m.Name(
+                        value=self.reporter_imported_as
+                    ),
+                    attr=m.Name(
+                        value=ERROR_REPORT_CALL
+                    ),
+                ),
+                args=[m.Arg(
+                    value=m.Name(
+                        value=except_as_name
+                    )
+                )]
+            ),
+        )
+
+    def matches_error_report_statement(self, node: cst.SimpleStatementLine, except_as_name):
+        return m.matches(
+            node,
+            m.SimpleStatementLine(
+                body=[m.Expr(
+                    value=m.MatchIfTrue(
+                        lambda value: self.matches_error_report_call(value, except_as_name)
+                    )
+                )]
+            )
+        )
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> Optional[bool]:
+        position = self.get_metadata(cst.metadata.PositionProvider, node)
+        self.func_scope.append(position.start.line)
+        return True
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> Union[cst.BaseStatement, cst.FlattenSentinel[cst.BaseStatement], cst.RemovalSentinel]:
+        self.func_scope.pop()
+        return updated_node
+
+    def leave_ExceptHandler(
+            self, node: cst.ExceptHandler, updated_node: cst.ExceptHandler
+    ) -> Union[cst.ExceptHandler, cst.FlattenSentinel[cst.ExceptHandler], cst.RemovalSentinel]:
+        if not self.func_scope:
+            return updated_node
+        if self.func_scope[-1] not in self.linenos:
+            return updated_node
+
+        asname = "e"
+        new_name = node.name
+        except_type = node.type
+
+        if except_type is None:
+            return updated_node
+
+        if self.has_except_asname(node):
+            # Casting to types, since getting errors in mypy
+            _asname = cast(cst.AsName, node.name)
+            name = cast(cst.Name, _asname.name)
+            asname = name.value
+        else:
+            return updated_node
+
+        new_inner_body = []
+
+        for el in updated_node.body.body:   # Using updated node, since child od node is updated
+
+            if not(
+                    isinstance(el, cst.SimpleStatementLine)
+                    and self.matches_error_report_statement(el, asname)
+            ):
+                new_inner_body.append(el)
+
+        new_body = updated_node.body.with_changes(
+            body=new_inner_body
+        )
+
+        return updated_node.with_changes(
+            body=new_body,
         )
 
 
