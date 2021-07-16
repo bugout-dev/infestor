@@ -7,5 +7,3 @@ try:
     infestor_reporter.setup_excepthook(tags=infestor_tags)
 except Exception:
     pass
-
-

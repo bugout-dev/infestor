@@ -40,13 +40,16 @@ class TestSetupReporter(InfestorTestCase):
 
         self.assertEqual(reporter_visitor.HumbugConsentImportedAs, "HumbugConsent")
         self.assertLess(
-            reporter_visitor.HumbugConsentImportedAt, reporter_visitor.HumbugConsentInstantiatedAt
+            reporter_visitor.HumbugConsentImportedAt,
+            reporter_visitor.HumbugConsentInstantiatedAt,
         )
         self.assertLess(
-            reporter_visitor.HumbugReporterImportedAt, reporter_visitor.HumbugReporterInstantiatedAt
+            reporter_visitor.HumbugReporterImportedAt,
+            reporter_visitor.HumbugReporterInstantiatedAt,
         )
         self.assertEqual(
-            reporter_visitor.HumbugReporterConsentArgument, reporter_visitor.HumbugConsentInstantiatedAs
+            reporter_visitor.HumbugReporterConsentArgument,
+            reporter_visitor.HumbugConsentInstantiatedAs,
         )
         self.assertEqual(
             reporter_visitor.HumbugReporterTokenArgument,
@@ -71,8 +74,7 @@ class TestSetupReporter(InfestorTestCase):
     def test_decorator_list_with_no_reporter_decorators(self):
         operations.add_reporter(self.package_dir)
         results = operations.list_decorators(
-            operations.DECORATOR_TYPE_RECORD_ERRORS,
-            self.package_dir
+            operations.DECORATOR_TYPE_RECORD_ERRORS, self.package_dir
         )
         self.assertDictEqual(results, {})
 
@@ -80,15 +82,9 @@ class TestSetupReporter(InfestorTestCase):
         operations.add_reporter(self.package_dir)
         target_file = os.path.join(self.package_dir, "cli.py")
         candidates = operations.decorator_candidates(
-            operations.DECORATOR_TYPE_RECORD_ERRORS,
-            self.package_dir,
-            target_file
+            operations.DECORATOR_TYPE_RECORD_ERRORS, self.package_dir, target_file
         )
-        self.assertNotEqual(
-            len(candidates),
-            0,
-            "Failed to find decorator candidates"
-        )
+        self.assertNotEqual(len(candidates), 0, "Failed to find decorator candidates")
         linenos = []
         for candidate in candidates:
             linenos.append(candidate.lineno)
@@ -97,37 +93,25 @@ class TestSetupReporter(InfestorTestCase):
             operations.DECORATOR_TYPE_RECORD_ERRORS,
             self.package_dir,
             target_file,
-            linenos
+            linenos,
         )
 
         new_candidates = operations.decorator_candidates(
-            operations.DECORATOR_TYPE_RECORD_ERRORS,
-            self.package_dir,
-            target_file
+            operations.DECORATOR_TYPE_RECORD_ERRORS, self.package_dir, target_file
         )
 
-        self.assertEqual(
-            len(new_candidates),
-            0,
-            "Failed to decorate all candidates"
-        )
+        self.assertEqual(len(new_candidates), 0, "Failed to decorate all candidates")
 
         decorators = operations.list_decorators(
-            operations.DECORATOR_TYPE_RECORD_ERRORS,
-            self.package_dir,
-            [target_file]
+            operations.DECORATOR_TYPE_RECORD_ERRORS, self.package_dir, [target_file]
         )
 
-        self.assertNotEqual(
-            decorators,
-            {},
-            "Failed to list decorators"
-        )
+        self.assertNotEqual(decorators, {}, "Failed to list decorators")
 
         self.assertEqual(
             len(decorators[target_file]),
             len(candidates),
-            "Failed to list all decorators"
+            "Failed to list all decorators",
         )
 
         linenos = []
@@ -138,21 +122,14 @@ class TestSetupReporter(InfestorTestCase):
             operations.DECORATOR_TYPE_RECORD_ERRORS,
             self.package_dir,
             target_file,
-            linenos
+            linenos,
         )
 
         decorators = operations.list_decorators(
-            operations.DECORATOR_TYPE_RECORD_ERRORS,
-            self.package_dir,
-            [target_file]
+            operations.DECORATOR_TYPE_RECORD_ERRORS, self.package_dir, [target_file]
         )
 
-        self.assertEqual(
-            decorators,
-            {},
-            "Failed to remove decorators"
-        )
-
+        self.assertEqual(decorators, {}, "Failed to remove decorators")
 
     def test_system_report_add(self):
         operations.add_reporter(self.package_dir)
@@ -166,44 +143,42 @@ class TestSetupReporter(InfestorTestCase):
                 source += line
 
         source_tree = cst.metadata.MetadataWrapper(cst.parse_module(source))
-        visitor = visitors.PackageFileVisitor(self.package_name+".report", False)
+        visitor = visitors.PackageFileVisitor(self.package_name + ".report", False)
         source_tree.visit(visitor)
 
-        self.assertNotEqual(
-            visitor.ReporterImportedAt,
-            -1,
-            "reporter not imported"
-        )
+        self.assertNotEqual(visitor.ReporterImportedAt, -1, "reporter not imported")
 
         self.assertNotEqual(
-            len(visitor.calls.get("system_report")),
-            0,
-            "system_call not called"
+            len(visitor.calls.get("system_report")), 0, "system_call not called"
         )
 
         self.assertEqual(
             visitor.last_import_lineno,
             visitor.ReporterImportedAt,
-            "reporter is not last import"
+            "reporter is not last import",
         )
         self.assertTrue(
             visitor.ReporterCorrectlyImported,
-            "reporter is not imported right after last naked import"
+            "reporter is not imported right after last naked import",
         )
         self.assertEqual(
             visitor.ReporterImportedAt,
             visitor.calls.get("system_report")[0].lineno - 1,
-            "system_call is not called right after import"
+            "system_call is not called right after import",
         )
 
     def test_system_report_remove(self):
         operations.add_reporter(self.package_dir)
         operations.add_call(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
-        calls = operations.list_calls(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
+        calls = operations.list_calls(
+            operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir
+        )
         self.assertNotEqual(calls, {}, "Failed to add system_report call")
 
         operations.remove_calls(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
-        calls = operations.list_calls(operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir)
+        calls = operations.list_calls(
+            operations.CALL_TYPE_SYSTEM_REPORT, self.package_dir
+        )
         self.assertEqual(calls, {}, "Failed to remove system_report call")
 
 

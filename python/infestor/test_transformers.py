@@ -11,14 +11,13 @@ from .operations import add_reporter
 from .testcase import InfestorTestCase
 
 
-
 class TestTryExcept(unittest.TestCase):
     def setUp(self) -> None:
         pass
 
     def test_simple_try_except(self):
-        source_code = '''
-        '''
+        source_code = """
+        """
 
 
 class TestImportReporterTransformer(InfestorTestCase):
@@ -26,10 +25,10 @@ class TestImportReporterTransformer(InfestorTestCase):
         super().setUp()
         add_reporter(self.package_dir)
         self.config = config.load_config(self.config_file)
-        self.package_transformer = transformers.ImportReporterTransformer(self.package_dir)
-
+        self.package_transformer = transformers.ImportReporterTransformer(
+            self.package_dir
+        )
 
 
 if __name__ == "__main__":
     unittest.main()
-

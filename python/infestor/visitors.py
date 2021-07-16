@@ -26,43 +26,45 @@ class ReporterFileVisitor(cst.CSTVisitor):
         self.HumbugReporterInstantiatedAt: int = -1
         self.HumbugReporterConsentArgument: str = ""
         self.HumbugReporterTokenArgument: str = ""
-    
+
     @staticmethod
     def syntax_tree(reporter_filepath: str) -> cst.MetadataWrapper:
         with open(reporter_filepath, "r") as ifp:
             reporter_file_source = ifp.read()
-        reporter_syntax_tree = cst.metadata.MetadataWrapper(cst.parse_module(reporter_file_source))
+        reporter_syntax_tree = cst.metadata.MetadataWrapper(
+            cst.parse_module(reporter_file_source)
+        )
         return reporter_syntax_tree
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
         position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
         if (
-                isinstance(node.module, cst.Attribute)
-                and isinstance(node.module.value, cst.Name)
-                and node.module.value.value == "humbug"
+            isinstance(node.module, cst.Attribute)
+            and isinstance(node.module.value, cst.Name)
+            and node.module.value.value == "humbug"
         ):
             if node.module.attr.value == "consent" and not isinstance(
-                    node.names, cst.ImportStar
+                node.names, cst.ImportStar
             ):
                 for name in node.names:
                     if name.name.value == "HumbugConsent":
                         self.HumbugConsentImportedAs = "HumbugConsent"
 
                         if name.asname is not None and isinstance(
-                                name.asname, cst.Name
+                            name.asname, cst.Name
                         ):
                             self.HumbugConsentImportedAs = name.asname.value
 
                         self.HumbugConsentImportedAt = position.start.line
             elif node.module.attr.value == "report" and not isinstance(
-                    node.names, cst.ImportStar
+                node.names, cst.ImportStar
             ):
                 for name in node.names:
                     if name.name.value == "HumbugReporter":
                         self.HumbugReporterImportedAs = "HumbugReporter"
 
                         if name.asname is not None and isinstance(
-                                name.asname, cst.Name
+                            name.asname, cst.Name
                         ):
                             self.HumbugReporterImportedAs = name.asname.value
 
@@ -72,10 +74,10 @@ class ReporterFileVisitor(cst.CSTVisitor):
 
     def visit_Assign(self, node: cst.Assign) -> Optional[bool]:
         if (
-                len(node.targets) == 1
-                and isinstance(node.value, cst.Call)
-                and isinstance(node.value.func, cst.Name)
-                and isinstance(node.targets[0].target, cst.Name)
+            len(node.targets) == 1
+            and isinstance(node.value, cst.Call)
+            and isinstance(node.value.func, cst.Name)
+            and isinstance(node.targets[0].target, cst.Name)
         ):
             if node.value.func.value == self.HumbugConsentImportedAs:
                 position = self.get_metadata(cst.metadata.PositionProvider, node)  # type: ignore
@@ -90,20 +92,20 @@ class ReporterFileVisitor(cst.CSTVisitor):
 
     def visit_Call(self, node: cst.Call) -> Optional[bool]:
         if (
-                isinstance(node.func, cst.Name)
-                and node.func.value == self.HumbugReporterImportedAs
+            isinstance(node.func, cst.Name)
+            and node.func.value == self.HumbugReporterImportedAs
         ):
             for arg in node.args:
                 if (
-                        arg.keyword is not None
-                        and arg.keyword.value == "consent"
-                        and isinstance(arg.value, cst.Name)
+                    arg.keyword is not None
+                    and arg.keyword.value == "consent"
+                    and isinstance(arg.value, cst.Name)
                 ):
                     self.HumbugReporterConsentArgument = arg.value.value
                 elif (
-                        arg.keyword is not None
-                        and arg.keyword.value == "bugout_token"
-                        and isinstance(arg.value, cst.SimpleString)
+                    arg.keyword is not None
+                    and arg.keyword.value == "bugout_token"
+                    and isinstance(arg.value, cst.SimpleString)
                 ):
                     self.HumbugReporterTokenArgument = arg.value.value
         return False
@@ -123,15 +125,14 @@ class DecoratorCandidatesVisitor(cst.CSTVisitor):
 
         for decorator in node.decorators:
             if transformers.matches_with_reporter_decorator(
-                    decorator, self.reporter_imported_as, self.decorator_type
+                decorator, self.reporter_imported_as, self.decorator_type
             ):
                 return True
 
         position = self.get_metadata(cst.metadata.PositionProvider, node)
         self.decorator_candidates.append(
             models.ReporterDecoratorCandidate(
-                scope_stack=".".join(self.scope_stack),
-                lineno=position.start.line
+                scope_stack=".".join(self.scope_stack), lineno=position.start.line
             )
         )
         return True
@@ -171,13 +172,13 @@ class PackageFileVisitor(cst.CSTVisitor):
                 module=m.Attribute(
                     value=m.Name(
                         # TODO: Refactor this
-                        value=self.reporter_module_path.rsplit('.', 1)[0]  # checking for reporter module path basename
+                        value=self.reporter_module_path.rsplit(".", 1)[
+                            0
+                        ]  # checking for reporter module path basename
                     ),
-                    attr=m.Name(
-                        value="report"
-                    ),
+                    attr=m.Name(value="report"),
                 ),
-            )
+            ),
         )
 
     def matches_reporter_call(self, node: cst.Call):
@@ -185,9 +186,7 @@ class PackageFileVisitor(cst.CSTVisitor):
             node,
             m.Call(
                 func=m.Attribute(
-                    value=m.Name(
-                        value=self.ReporterImportedAs
-                    ),
+                    value=m.Name(value=self.ReporterImportedAs),
                 ),
             ),
         )
@@ -197,11 +196,9 @@ class PackageFileVisitor(cst.CSTVisitor):
             node,
             m.Decorator(
                 decorator=m.Attribute(
-                    value=m.Name(
-                        value=self.ReporterImportedAs
-                    ),
+                    value=m.Name(value=self.ReporterImportedAs),
                 )
-            )
+            ),
         )
 
     def visit_FunctionDef(self, node: cst.FunctionDef):
@@ -213,11 +210,11 @@ class PackageFileVisitor(cst.CSTVisitor):
                 decorator_model = models.ReporterDecorator(
                     decorator_type=decorator_attribute.attr.value,
                     scope_stack=".".join(self.scope_stack),
-                    lineno=position.start.line
+                    lineno=position.start.line,
                 )
-                self.decorators\
-                    .setdefault(decorator_model.decorator_type, [])\
-                    .append(decorator_model)
+                self.decorators.setdefault(decorator_model.decorator_type, []).append(
+                    decorator_model
+                )
         return True
 
     def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
@@ -247,7 +244,9 @@ class PackageFileVisitor(cst.CSTVisitor):
                 else:
                     self.ReporterImportedAs = name
                 self.ReporterImportedAt = position.start.line
-                self.ReporterCorrectlyImported = position.start.line == self.last_import_lineno + 1
+                self.ReporterCorrectlyImported = (
+                    position.start.line == self.last_import_lineno + 1
+                )
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> Optional[bool]:
         if self.scope_stack:
@@ -267,9 +266,9 @@ class PackageFileVisitor(cst.CSTVisitor):
                 else:
                     break
             if (
-                    node_import_level == expected_level
-                    and isinstance(node.module, cst.Name)
-                    and node.module.value == self.reporter_module_path[expected_level:]
+                node_import_level == expected_level
+                and isinstance(node.module, cst.Name)
+                and node.module.value == self.reporter_module_path[expected_level:]
             ):
                 import_aliases = node.names
                 self.check_alias_for_reporter(import_aliases, position)
@@ -290,7 +289,7 @@ class PackageFileVisitor(cst.CSTVisitor):
             call_model = models.ReporterCall(
                 call_type=func_attr.attr.value,
                 lineno=position.start.line,
-                scope_stack=".".join(self.scope_stack)
+                scope_stack=".".join(self.scope_stack),
             )
             self.calls.setdefault(call_model.call_type, []).append(call_model)
         return False

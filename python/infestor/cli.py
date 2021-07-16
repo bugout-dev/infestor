@@ -68,21 +68,13 @@ def handle_reporter_add(args: argparse.Namespace) -> None:
 
 
 def handle_report_all(args: argparse.Namespace) -> None:
-    operations.add_call(
-        operations.CALL_TYPE_SYSTEM_REPORT,
-        args.repository
-    )
-    operations.add_call(
-        operations.CALL_TYPE_SETUP_EXCEPTHOOK,
-        args.repository
-    )
+    operations.add_call(operations.CALL_TYPE_SYSTEM_REPORT, args.repository)
+    operations.add_call(operations.CALL_TYPE_SETUP_EXCEPTHOOK, args.repository)
 
     files = operations.python_files(args.repository)
     for file in files:
         candidates = operations.decorator_candidates(
-            operations.DECORATOR_TYPE_RECORD_ERRORS,
-            args.repository,
-            file
+            operations.DECORATOR_TYPE_RECORD_ERRORS, args.repository, file
         )
         candidate_linenos = []
         for candidate in candidates:
@@ -92,13 +84,11 @@ def handle_report_all(args: argparse.Namespace) -> None:
                 operations.DECORATOR_TYPE_RECORD_ERRORS,
                 args.repository,
                 file,
-                candidate_linenos
+                candidate_linenos,
             )
     for file in files:
         candidates = operations.decorator_candidates(
-            operations.DECORATOR_TYPE_RECORD_CALL,
-            args.repository,
-            file
+            operations.DECORATOR_TYPE_RECORD_CALL, args.repository, file
         )
         candidate_linenos = []
         for candidate in candidates:
@@ -108,7 +98,7 @@ def handle_report_all(args: argparse.Namespace) -> None:
                 operations.DECORATOR_TYPE_RECORD_CALL,
                 args.repository,
                 file,
-                candidate_linenos
+                candidate_linenos,
             )
 
 
@@ -155,9 +145,7 @@ def generate_decorator_handlers(
         for filepath, decorators in results.items():
             print(f"Lines in {filepath}:")
             for decorator in decorators:
-                print(
-                    f"\t- (line {decorator.lineno}) {decorator.scope_stack}"
-                )
+                print(f"\t- (line {decorator.lineno}) {decorator.scope_stack}")
 
     def handle_candidates(args: argparse.Namespace) -> None:
         results = operations.decorator_candidates(
@@ -423,7 +411,8 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     record_call_remove_parser.set_defaults(func=handle_record_call_remove)
 
     record_error_parser = subcommands.add_parser(
-        "record-error", description="Record function/method's caught and uncaught errors"
+        "record-error",
+        description="Record function/method's caught and uncaught errors",
     )
     record_error_parser.set_defaults(func=lambda _: record_error_parser.print_help())
     record_error_subcommands = record_error_parser.add_subparsers()
@@ -494,8 +483,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     record_error_remove_parser.set_defaults(func=handle_record_error_remove)
 
     report_all_parser = subcommands.add_parser(
-        "report-all",
-        description="Report all that can be reported "
+        "report-all", description="Report all that can be reported "
     )
     populate_leaf_parser_with_common_args(report_all_parser)
     report_all_parser.set_defaults(func=handle_report_all)

@@ -4,7 +4,7 @@ import sys
 
 def generate_parser() -> argparse.ArgumentParser:
     try:
-        l = 1/0
+        l = 1 / 0
     except:
         print("It should fail")
     parser = argparse.ArgumentParser(description="greeter")

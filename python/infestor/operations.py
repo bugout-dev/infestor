@@ -8,7 +8,7 @@ from .manager import (
     DECORATOR_TYPE_RECORD_ERRORS,
     DECORATOR_TYPE_RECORD_CALL,
     CALL_TYPE_SETUP_EXCEPTHOOK,
-    CALL_TYPE_SYSTEM_REPORT
+    CALL_TYPE_SYSTEM_REPORT,
 )
 from .config import (
     default_config_file,
@@ -188,11 +188,7 @@ def add_decorators(
     3. linenos: Line numbers where functions are defined that we wish to decorate
     """
 
-    candidates = decorator_candidates(
-        decorator_type,
-        repository,
-        submodule_path
-    )
+    candidates = decorator_candidates(decorator_type, repository, submodule_path)
 
     candidate_linenos = []
     for candidate in candidates:
@@ -223,9 +219,7 @@ def remove_decorators(
     3. linenos: Line numbers where decorated functions are defined that we wish to undecorate
     """
     candidates_for_removal = list_decorators(
-        decorator_type,
-        repository,
-        [submodule_path]
+        decorator_type, repository, [submodule_path]
     ).get(submodule_path, [])
 
     candidate_linenos = []

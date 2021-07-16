@@ -19,9 +19,7 @@ DECORATOR_TYPE_RECORD_CALL = "record_call"
 DECORATOR_TYPE_RECORD_ERRORS = "record_errors"
 
 
-def get_reporter_module_path(
-    repository: str, submodule_path: str
-) -> Tuple[str, bool]:
+def get_reporter_module_path(repository: str, submodule_path: str) -> Tuple[str, bool]:
 
     config_file = default_config_file(repository)
     configuration = load_config(config_file)
@@ -73,7 +71,6 @@ def get_reporter_module_path(
 
 
 class PackageFileManager:
-
     def __init__(self, repository: str, filepath: str):
         self.filepath = filepath
         self.repository = repository
@@ -89,7 +86,9 @@ class PackageFileManager:
 
     def _visit(self, module: cst.Module):
         self.syntax_tree = cst.metadata.MetadataWrapper(module)
-        self.visitor = visitors.PackageFileVisitor(self.reporter_module_path, self.relative_imports)
+        self.visitor = visitors.PackageFileVisitor(
+            self.reporter_module_path, self.relative_imports
+        )
         self.syntax_tree.visit(self.visitor)
 
     def get_code(self):
@@ -100,7 +99,10 @@ class PackageFileManager:
             ofp.write(self.get_code())
 
     def is_reporter_imported(self) -> bool:
-        return self.visitor.ReporterImportedAt != -1 and self.visitor.ReporterImportedAs != ""
+        return (
+            self.visitor.ReporterImportedAt != -1
+            and self.visitor.ReporterImportedAs != ""
+        )
 
     def ensure_import_reporter(self):
         if not self.is_reporter_imported():
@@ -121,16 +123,14 @@ class PackageFileManager:
             return
         self.ensure_import_reporter()
         transformer = transformers.ReporterCallsAdderTransformer(
-            self.visitor.ReporterImportedAs,
-            call_type
+            self.visitor.ReporterImportedAs, call_type
         )
         modified_tree = self.syntax_tree.visit(transformer)
         self._visit(modified_tree)
 
     def remove_call(self, call_type: str):
         transformer = transformers.ReporterCallsRemoverTransformer(
-            self.visitor.ReporterImportedAs,
-            call_type
+            self.visitor.ReporterImportedAs, call_type
         )
 
         modified_tree = self.syntax_tree.visit(transformer)
@@ -141,8 +141,7 @@ class PackageFileManager:
 
     def decorator_candidates(self, decorator_type: str):
         decorator_candidates_visitor = visitors.DecoratorCandidatesVisitor(
-            self.visitor.ReporterImportedAs,
-            decorator_type
+            self.visitor.ReporterImportedAs, decorator_type
         )
         self.syntax_tree.visit(decorator_candidates_visitor)
         return decorator_candidates_visitor.decorator_candidates
@@ -157,34 +156,28 @@ class PackageFileManager:
             func_linenos = [x + 1 for x in func_linenos]
 
         transformer = transformers.DecoratorsAdderTransformer(
-            self.visitor.ReporterImportedAs,
-            decorator_type,
-            func_linenos
+            self.visitor.ReporterImportedAs, decorator_type, func_linenos
         )
         modified_tree = self.syntax_tree.visit(transformer)
         self._visit(modified_tree)
         if decorator_type == DECORATOR_TYPE_RECORD_ERRORS:
             # We've added decorator which shifts linenos
             try_except_transformer = transformers.TryExceptAdderTransformer(
-                self.visitor.ReporterImportedAs,
-                [x + 1 for x in func_linenos]
+                self.visitor.ReporterImportedAs, [x + 1 for x in func_linenos]
             )
             modified_tree = self.syntax_tree.visit(try_except_transformer)
             self._visit(modified_tree)
 
     def remove_decorators(self, decorator_type: str, linenos: List[int]):
         transformer = transformers.DecoratorsRemoverTransformer(
-            self.visitor.ReporterImportedAs,
-            decorator_type,
-            linenos
+            self.visitor.ReporterImportedAs, decorator_type, linenos
         )
         modified_tree = self.syntax_tree.visit(transformer)
         self._visit(modified_tree)
 
         if decorator_type == DECORATOR_TYPE_RECORD_ERRORS:
             try_except_transformer = transformers.TryExceptRemoverTransformer(
-                self.visitor.ReporterImportedAs,
-                [x - 1 for x in linenos]
+                self.visitor.ReporterImportedAs, [x - 1 for x in linenos]
             )
             modified_tree = self.syntax_tree.visit(try_except_transformer)
             self._visit(modified_tree)
