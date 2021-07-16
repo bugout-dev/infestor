@@ -13,9 +13,9 @@ setup(
     version=INFESTOR_VERSION,
     packages=find_packages(),
     python_requires=">=3.8",
-    install_requires=["atomicwrites", "humbug", "pygit2"],
+    install_requires=["atomicwrites", "humbug", "libcst", "pygit2", "pydantic"],
     extras_require={
-        "dev": ["black", "mypy", "wheel"],
+        "dev": ["black", "mypy", "wheel", "types-atomicwrites"],
         "distribute": ["setuptools", "twine", "wheel"],
     },
     description="Humbug Infestor: Manage Humbug reporting over your code base",
@@ -31,4 +31,5 @@ setup(
     ],
     url="https://github.com/bugout-dev/infestor",
     entry_points={"console_scripts": ["infestor=infestor.cli:main"]},
+    include_package_data=True,
 )

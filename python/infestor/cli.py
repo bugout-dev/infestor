@@ -3,10 +3,9 @@ Command line interface for the Humbug infestor.
 """
 import argparse
 import os
-import sys
 from typing import Callable, Tuple
 
-from . import config, manage
+from . import config, operations
 
 CLIHandler = Callable[[argparse.Namespace], None]
 
@@ -14,7 +13,6 @@ CLIHandler = Callable[[argparse.Namespace], None]
 def handle_config_init(args: argparse.Namespace) -> None:
     config.initialize(
         args.repository,
-        args.python_root,
         args.name,
         args.relative_imports,
         args.reporter_token,
@@ -50,21 +48,15 @@ def handle_config_validate(args: argparse.Namespace) -> None:
 
 def handle_config_token(args: argparse.Namespace) -> None:
     config_file = config.default_config_file(args.repository)
-    python_root = config.python_root_relative_to_repository_root(
-        args.repository, args.python_root
-    )
-
     config_object = config.set_reporter_token(
         config_file,
-        python_root,
         args.token,
     )
 
-    if config_object[python_root].reporter_filepath is not None:
-        manage.add_reporter(
+    if config_object.reporter_filepath is not None:
+        operations.add_reporter(
             args.repository,
-            python_root,
-            config_object[python_root].reporter_filepath,
+            config_object.reporter_filepath,
             force=True,
         )
 
@@ -72,9 +64,42 @@ def handle_config_token(args: argparse.Namespace) -> None:
 
 
 def handle_reporter_add(args: argparse.Namespace) -> None:
-    manage.add_reporter(
-        args.repository, args.python_root, args.reporter_filepath, args.force
-    )
+    operations.add_reporter(args.repository, args.reporter_filepath, args.force)
+
+
+def handle_report_all(args: argparse.Namespace) -> None:
+    operations.add_call(operations.CALL_TYPE_SYSTEM_REPORT, args.repository)
+    operations.add_call(operations.CALL_TYPE_SETUP_EXCEPTHOOK, args.repository)
+
+    files = operations.python_files(args.repository)
+    for file in files:
+        candidates = operations.decorator_candidates(
+            operations.DECORATOR_TYPE_RECORD_ERRORS, args.repository, file
+        )
+        candidate_linenos = []
+        for candidate in candidates:
+            candidate_linenos.append(candidate.lineno)
+        if candidate_linenos:
+            operations.add_decorators(
+                operations.DECORATOR_TYPE_RECORD_ERRORS,
+                args.repository,
+                file,
+                candidate_linenos,
+            )
+    for file in files:
+        candidates = operations.decorator_candidates(
+            operations.DECORATOR_TYPE_RECORD_CALL, args.repository, file
+        )
+        candidate_linenos = []
+        for candidate in candidates:
+            candidate_linenos.append(candidate.lineno)
+        if candidate_linenos:
+            operations.add_decorators(
+                operations.DECORATOR_TYPE_RECORD_CALL,
+                args.repository,
+                file,
+                candidate_linenos,
+            )
 
 
 def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIHandler]:
@@ -84,29 +109,25 @@ def generate_call_handlers(call_type: str) -> Tuple[CLIHandler, CLIHandler, CLIH
     """
 
     def handle_list(args: argparse.Namespace) -> None:
-        results = manage.list_calls(call_type, args.repository, args.python_root)
+        results = operations.list_calls(call_type, args.repository)
         for filepath, calls in results.items():
             print(f"Lines in {filepath}:")
-            for report_call in calls:
-                print(f"\t- {report_call.lineno}")
+            for call in calls:
+                print(f"\t- (line {call.lineno}) {call.scope_stack}")
 
     def handle_add(args: argparse.Namespace) -> None:
         # TODO(zomglings): Is there a better way to check if an argparse.Namespace has a given member?
         if vars(args).get("submodule") is not None:
-            manage.add_call(
-                call_type, args.repository, args.python_root, args.submodule
-            )
+            operations.add_call(call_type, args.repository, args.submodule)
         else:
-            manage.add_call(call_type, args.repository, args.python_root)
+            operations.add_call(call_type, args.repository)
 
     def handle_remove(args: argparse.Namespace) -> None:
         # TODO(zomglings): Ditto
         if vars(args).get("submodule") is not None:
-            manage.remove_calls(
-                call_type, args.repository, args.python_root, args.submodule
-            )
+            operations.remove_calls(call_type, args.repository, args.submodule)
         else:
-            manage.remove_calls(call_type, args.repository, args.python_root)
+            operations.remove_calls(call_type, args.repository)
 
     return (handle_list, handle_add, handle_remove)
 
@@ -120,38 +141,32 @@ def generate_decorator_handlers(
     """
 
     def handle_list(args: argparse.Namespace) -> None:
-        results = manage.list_decorators(
-            decorator_type, args.repository, args.python_root
-        )
-        for filepath, function_definitions in results.items():
+        results = operations.list_decorators(decorator_type, args.repository)
+        for filepath, decorators in results.items():
             print(f"Lines in {filepath}:")
-            for decorated_function in function_definitions:
-                print(
-                    f"\t- (line {decorated_function.lineno}) {decorated_function.name}"
-                )
+            for decorator in decorators:
+                print(f"\t- (line {decorator.lineno}) {decorator.scope_stack}")
 
     def handle_candidates(args: argparse.Namespace) -> None:
-        results = manage.decorator_candidates(
-            decorator_type, args.repository, args.python_root, args.submodule
+        results = operations.decorator_candidates(
+            decorator_type, args.repository, args.submodule
         )
         print(f"You can add the {decorator_type} decorator to the following functions:")
-        for function_definition in results:
-            print(f"\t- (line {function_definition.lineno}) {function_definition.name}")
+        for candidate in results:
+            print(f"\t- (line {candidate.lineno}) {candidate.scope_stack}")
 
     def handle_add(args: argparse.Namespace) -> None:
-        manage.add_decorators(
+        operations.add_decorators(
             decorator_type,
             args.repository,
-            args.python_root,
             args.submodule,
             args.lines,
         )
 
     def handle_remove(args: argparse.Namespace) -> None:
-        manage.remove_decorators(
+        operations.remove_decorators(
             decorator_type,
             args.repository,
-            args.python_root,
             args.submodule,
             args.lines,
         )
@@ -170,26 +185,13 @@ def generate_argument_parser() -> argparse.ArgumentParser:
 
     def populate_leaf_parser_with_common_args(
         leaf_parser: argparse.ArgumentParser,
-        repository: bool = True,
-        python_root: bool = True,
     ) -> None:
-        if repository:
-            leaf_parser.add_argument(
-                "-r",
-                "--repository",
-                default=current_working_directory,
-                help=f"Path to git repository containing your code base (default: {current_working_directory})",
-            )
-        if python_root:
-            leaf_parser.add_argument(
-                "-P",
-                "--python-root",
-                required=True,
-                help=(
-                    "Root directory for Python code/module in the repository. If you are integrating with "
-                    "a module, this will be the highest-level directory with an __init__.py file in it."
-                ),
-            )
+        leaf_parser.add_argument(
+            "-r",
+            "--repository",
+            default=current_working_directory,
+            help=f"Path to git repository containing your code base (default: {current_working_directory})",
+        )
 
     config_parser = subcommands.add_parser(
         "config", description="Manage infestor configuration"
@@ -223,7 +225,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
     config_validate_parser = config_subcommands.add_parser(
         "validate", description="Validate an Infestor configuration"
     )
-    populate_leaf_parser_with_common_args(config_validate_parser, python_root=False)
+    populate_leaf_parser_with_common_args(config_validate_parser)
     config_validate_parser.set_defaults(func=handle_config_validate)
 
     config_token_parser = config_subcommands.add_parser(
@@ -249,8 +251,8 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         "-o",
         "--reporter-filepath",
         required=False,
-        default=manage.DEFAULT_REPORTER_FILENAME,
-        help=f"Path (relative to Python root) at which we should set up the reporter integration (default: {manage.DEFAULT_REPORTER_FILENAME})",
+        default=operations.DEFAULT_REPORTER_FILENAME,
+        help=f"Path (relative to Python root) at which we should set up the reporter integration (default: {operations.DEFAULT_REPORTER_FILENAME})",
     )
     reporter_add_parser.add_argument(
         "-f",
@@ -270,7 +272,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         handle_system_report_list,
         handle_system_report_add,
         handle_system_report_remove,
-    ) = generate_call_handlers(manage.CALL_TYPE_SYSTEM_REPORT)
+    ) = generate_call_handlers(operations.CALL_TYPE_SYSTEM_REPORT)
 
     system_report_list_parser = system_report_subcommands.add_parser(
         "list",
@@ -314,7 +316,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         handle_excepthook_list,
         handle_excepthook_add,
         handle_excepthook_remove,
-    ) = generate_call_handlers(manage.CALL_TYPE_SETUP_EXCEPTHOOK)
+    ) = generate_call_handlers(operations.CALL_TYPE_SETUP_EXCEPTHOOK)
 
     excepthook_list_parser = excepthook_subcommands.add_parser(
         "list",
@@ -348,7 +350,7 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         handle_record_call_candidates,
         handle_record_call_add,
         handle_record_call_remove,
-    ) = generate_decorator_handlers(manage.DECORATOR_TYPE_RECORD_CALL)
+    ) = generate_decorator_handlers(operations.DECORATOR_TYPE_RECORD_CALL)
 
     record_call_list_parser = record_call_subcommands.add_parser(
         "list",
@@ -407,6 +409,84 @@ def generate_argument_parser() -> argparse.ArgumentParser:
         help="Line numbers of function definitions to decorate",
     )
     record_call_remove_parser.set_defaults(func=handle_record_call_remove)
+
+    record_error_parser = subcommands.add_parser(
+        "record-error",
+        description="Record function/method's caught and uncaught errors",
+    )
+    record_error_parser.set_defaults(func=lambda _: record_error_parser.print_help())
+    record_error_subcommands = record_error_parser.add_subparsers()
+
+    (
+        handle_record_error_list,
+        handle_record_error_candidates,
+        handle_record_error_add,
+        handle_record_error_remove,
+    ) = generate_decorator_handlers(operations.DECORATOR_TYPE_RECORD_ERRORS)
+
+    record_error_list_parser = record_error_subcommands.add_parser(
+        "list",
+        description="List all functions/methods which are currently being recorded",
+    )
+    populate_leaf_parser_with_common_args(record_error_list_parser)
+    record_error_list_parser.set_defaults(func=handle_record_error_list)
+
+    record_error_candidates_parser = record_error_subcommands.add_parser(
+        "candidates",
+        description="List all functions/methods in the given submodule on which we can add the decorator",
+    )
+    populate_leaf_parser_with_common_args(record_error_candidates_parser)
+    record_error_candidates_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_error_candidates_parser.set_defaults(func=handle_record_error_candidates)
+
+    record_error_add_parser = record_error_subcommands.add_parser(
+        "add",
+        description="Adds reporting code to a given module",
+    )
+    populate_leaf_parser_with_common_args(record_error_add_parser)
+    record_error_add_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_error_add_parser.add_argument(
+        "lines",
+        type=int,
+        nargs="+",
+        help="Line numbers of function definitions to decorate",
+    )
+    record_error_add_parser.set_defaults(func=handle_record_error_add)
+
+    record_error_remove_parser = record_error_subcommands.add_parser(
+        "remove",
+        description="List all functions/methods which are currently being recorded",
+    )
+    populate_leaf_parser_with_common_args(record_error_remove_parser)
+    record_error_remove_parser.add_argument(
+        "-m",
+        "--submodule",
+        required=True,
+        help="Path (relative to Python root) to submodule in which list candidates",
+    )
+    record_error_remove_parser.add_argument(
+        "lines",
+        type=int,
+        nargs="+",
+        help="Line numbers of function definitions to decorate",
+    )
+    record_error_remove_parser.set_defaults(func=handle_record_error_remove)
+
+    report_all_parser = subcommands.add_parser(
+        "report-all", description="Report all that can be reported "
+    )
+    populate_leaf_parser_with_common_args(report_all_parser)
+    report_all_parser.set_defaults(func=handle_report_all)
 
     return parser
 
