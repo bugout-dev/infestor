@@ -216,7 +216,7 @@ class PackageFileVisitor(cst.CSTVisitor):
                     lineno=position.start.line
                 )
                 self.decorators\
-                    .setdefault(decorator.decorator.attr.value, [])\
+                    .setdefault(decorator_model.decorator_type, [])\
                     .append(decorator_model)
         return True
 

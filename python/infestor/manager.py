@@ -182,9 +182,9 @@ class PackageFileManager:
         self._visit(modified_tree)
 
         if decorator_type == DECORATOR_TYPE_RECORD_ERRORS:
-            transformer = transformers.TryExceptRemoverTransformer(
+            try_except_transformer = transformers.TryExceptRemoverTransformer(
                 self.visitor.ReporterImportedAs,
                 [x - 1 for x in linenos]
             )
-            modified_tree = self.syntax_tree.visit(transformer)
+            modified_tree = self.syntax_tree.visit(try_except_transformer)
             self._visit(modified_tree)
