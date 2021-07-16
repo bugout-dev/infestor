@@ -1,4 +1,4 @@
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, cast
 
 import libcst.matchers as m
 import libcst as cst
@@ -209,9 +209,9 @@ class PackageFileVisitor(cst.CSTVisitor):
         for decorator in node.decorators:
             if self.matches_with_reporter_decorator(decorator):
                 position = self.get_metadata(cst.metadata.PositionProvider, node)
-                assert isinstance(decorator.decorator, cst.Attribute)
+                decorator_attribute = cast(cst.Attribute, decorator.decorator)
                 decorator_model = models.ReporterDecorator(
-                    decorator_type=decorator.decorator.attr.value,
+                    decorator_type=decorator_attribute.attr.value,
                     scope_stack=".".join(self.scope_stack),
                     lineno=position.start.line
                 )
@@ -286,9 +286,9 @@ class PackageFileVisitor(cst.CSTVisitor):
             return False
         if self.matches_reporter_call(node):
             position = self.get_metadata(cst.metadata.PositionProvider, node)
-            assert isinstance(node.func, cst.Attribute)
+            func_attr = cast(cst.Attribute, node.func)
             call_model = models.ReporterCall(
-                call_type=node.func.attr.value,
+                call_type=func_attr.attr.value,
                 lineno=position.start.line,
                 scope_stack=".".join(self.scope_stack)
             )
