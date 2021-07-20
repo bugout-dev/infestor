@@ -59,13 +59,11 @@ def get_reporter_module_path(repository: str, submodule_path: str) -> Tuple[str,
         # name = ".".join(path_components)
 
     else:
-        name = "."
-        for comp in path_components:
-            if comp == "..":
-                name += "."
-            else:
-                name += comp
-        # name = "." + ".".join(path_components)
+        #TODO this is not working
+        for index, val in enumerate(path_components):
+            if val == "..":
+                path_components[index] = "."
+        name = "." + ".".join(path_components)
     if configuration.reporter_object_name is None:
         raise GenerateReporterError("Cannot get reporter object name")
     
@@ -116,6 +114,9 @@ class PackageFileManager:
         transformer = transformers.ImportReporterTransformer(self.reporter_module_path, self.reporter_object_name)
         modified_tree = self.syntax_tree.visit(transformer)
         self._visit(modified_tree)
+
+        if self.visitor.ReporterImportedAs == "" or self.visitor.ReporterImportedAt == -1:
+            raise GenerateReporterError(f"Failed to import reporter \n{self.get_code()}")
 
     def get_calls(self, call_type):
         return self.visitor.calls.get(call_type, [])
