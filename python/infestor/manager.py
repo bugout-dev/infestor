@@ -113,7 +113,7 @@ class PackageFileManager:
     def add_reporter_import(self) -> None:
         if self.is_reporter_imported():
             return
-        transformer = transformers.ImportReporterTransformer(self.reporter_module_path)
+        transformer = transformers.ImportReporterTransformer(self.reporter_module_path, self.reporter_object_name)
         modified_tree = self.syntax_tree.visit(transformer)
         self._visit(modified_tree)
 
