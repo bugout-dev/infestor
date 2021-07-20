@@ -152,7 +152,7 @@ class PackageFileVisitor(cst.CSTVisitor):
     METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
     last_import_lineno = 0
 
-    def __init__(self, reporter_module_path: str, relative_imports: bool):
+    def __init__(self, reporter_module_path: str, relative_imports: bool, reporter_object_name: str = "reporter"):
         self.ReporterImportedAs: str = ""
         self.ReporterImportedAt: int = -1
         self.ReporterCorrectlyImported: bool = False
@@ -160,6 +160,7 @@ class PackageFileVisitor(cst.CSTVisitor):
         self.relative_imports = relative_imports
         self.reporter_module_path = reporter_module_path
         self.scope_stack: List[str] = []
+        self.reporter_object_name = reporter_object_name
 
         self.calls: Dict[str, List[models.ReporterCall]] = {}
         self.decorators: Dict[str, List[models.ReporterDecorator]] = {}
@@ -237,7 +238,7 @@ class PackageFileVisitor(cst.CSTVisitor):
     def check_alias_for_reporter(self, import_aliases, position):
         for alias in import_aliases:
             name = alias.name.value
-            if name == "reporter":
+            if name == self.reporter_object_name:
                 asname = alias.asname
                 if asname:
                     self.ReporterImportedAs = asname.name.value

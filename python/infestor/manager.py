@@ -19,7 +19,7 @@ DECORATOR_TYPE_RECORD_CALL = "record_call"
 DECORATOR_TYPE_RECORD_ERRORS = "record_errors"
 
 
-def get_reporter_module_path(repository: str, submodule_path: str) -> Tuple[str, bool]:
+def get_reporter_module_path(repository: str, submodule_path: str) -> Tuple[str, bool, str]:
 
     config_file = default_config_file(repository)
     configuration = load_config(config_file)
@@ -66,8 +66,10 @@ def get_reporter_module_path(repository: str, submodule_path: str) -> Tuple[str,
             else:
                 name += comp
         # name = "." + ".".join(path_components)
-
-    return (name, configuration.relative_imports)
+    if configuration.reporter_object_name is None:
+        raise GenerateReporterError("Cannot get reporter object name")
+    
+    return (name, configuration.relative_imports, configuration.reporter_object_name)
 
 
 class PackageFileManager:
@@ -77,7 +79,7 @@ class PackageFileManager:
         self._load_file(filepath)
 
     def _load_file(self, filepath: str):
-        self.reporter_module_path, self.relative_imports = get_reporter_module_path(
+        self.reporter_module_path, self.relative_imports, self.reporter_object_name = get_reporter_module_path(
             self.repository, filepath
         )
         with open(filepath, "r") as ifp:
@@ -87,7 +89,7 @@ class PackageFileManager:
     def _visit(self, module: cst.Module):
         self.syntax_tree = cst.metadata.MetadataWrapper(module)
         self.visitor = visitors.PackageFileVisitor(
-            self.reporter_module_path, self.relative_imports
+            self.reporter_module_path, self.relative_imports, self.reporter_object_name
         )
         self.syntax_tree.visit(self.visitor)
 

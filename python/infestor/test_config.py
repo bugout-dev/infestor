@@ -16,7 +16,7 @@ class TestParseConfig(unittest.TestCase):
     def test_empty_config(self):
         raw_config = {}
         configuration, warnings, errors = config.parse_config(raw_config)
-        self.assertEqual(len(warnings), 2)
+        self.assertEqual(len(warnings), 3)
         self.assertEqual(len(errors), 2)
         self.assertIsNone(configuration)
 
@@ -25,6 +25,7 @@ class TestParseConfig(unittest.TestCase):
             config.RELATIVE_IMPORTS_KEY: False,
             config.REPORTER_TOKEN_KEY: "335da960-2dc6-48b3-97a5-c23ac1495e7d",
             config.REPORTER_FILEPATH_KEY: "report.py",
+            config.REPORTER_OBJECT_NAME: "reporter"
         }
         configuration, warnings, errors = config.parse_config(raw_config)
         self.assertEqual(len(warnings), 0)
@@ -36,6 +37,7 @@ class TestParseConfig(unittest.TestCase):
             config.PROJECT_NAME_KEY: "rofl",
             config.REPORTER_TOKEN_KEY: "335da960-2dc6-48b3-97a5-c23ac1495e7d",
             config.REPORTER_FILEPATH_KEY: "report.py",
+            config.REPORTER_OBJECT_NAME: "reporter"
         }
         configuration, warnings, errors = config.parse_config(raw_config)
         self.assertEqual(len(warnings), 0)
@@ -48,12 +50,14 @@ class TestParseConfig(unittest.TestCase):
             relative_imports=False,
             reporter_token="335da960-2dc6-48b3-97a5-c23ac1495e7d",
             reporter_filepath="report.py",
+            reporter_object_name="reporter"
         )
         raw_config = {
             config.PROJECT_NAME_KEY: infestor_configuration.project_name,
             config.RELATIVE_IMPORTS_KEY: infestor_configuration.relative_imports,
             config.REPORTER_TOKEN_KEY: infestor_configuration.reporter_token,
             config.REPORTER_FILEPATH_KEY: infestor_configuration.reporter_filepath,
+            config.REPORTER_OBJECT_NAME: "reporter"
         }
         configuration, warnings, errors = config.parse_config(raw_config)
         self.assertEqual(len(warnings), 0)

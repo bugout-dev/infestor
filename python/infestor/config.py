@@ -17,17 +17,20 @@ CONFIG_FILENAME = "humbug.json"
 @dataclass
 class InfestorConfiguration:
     project_name: str
+    
     relative_imports: bool = False
     reporter_token: Optional[str] = None
     # reporter_filepath should be a path relative to Python root
     reporter_filepath: Optional[str] = None
+    reporter_object_name: Optional[str] = None
+    
 
 
 PROJECT_NAME_KEY = "project_name"
 RELATIVE_IMPORTS_KEY = "relative_imports"
 REPORTER_TOKEN_KEY = "reporter_token"
 REPORTER_FILEPATH_KEY = "reporter_filepath"
-
+REPORTER_OBJECT_NAME = "reporter_object_name"
 
 class ConfigurationError(Exception):
     """
@@ -69,12 +72,17 @@ def parse_config(
     if reporter_filepath is None:
         warn_messages.append(f"No reporter filepath found")
 
+    reporter_object_name: Optional[str] = raw_config.get(REPORTER_OBJECT_NAME)
+    if reporter_object_name is None:
+        warn_messages.append(f"No reporter object name found")
+
     if not error_messages:
         infestor_configuration = InfestorConfiguration(
             project_name=project_name,
             relative_imports=relative_imports,
             reporter_token=reporter_token,
             reporter_filepath=reporter_filepath,
+            reporter_object_name=reporter_object_name
         )
 
     return (infestor_configuration, warn_messages, error_messages)
@@ -143,6 +151,7 @@ def initialize(
         project_name=project_name,
         relative_imports=relative_imports,
         reporter_token=reporter_token,
+        reporter_object_name="reporter"
     )
     save_config(config_file, configuration)
     return configuration

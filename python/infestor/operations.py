@@ -18,6 +18,7 @@ from .config import (
 )
 
 DEFAULT_REPORTER_FILENAME = "report.py"
+DEFAULT_REPORTER_OBJECT_NAME = "reporter"
 REPORTER_FILE_TEMPLATE: Optional[str] = None
 TEMPLATE_FILEPATH = os.path.join(os.path.dirname(__file__), "report.py.template")
 
@@ -261,7 +262,7 @@ def add_reporter(
             raise GenerateReporterError(
                 f"Configuration expects reporter to be set up at a different file than the one specified; specified={reporter_filepath}, expected={configuration.reporter_filepath}"
             )
-
+    
     reporter_filepath_full = os.path.join(repository, reporter_filepath)
     if (not force) and os.path.exists(reporter_filepath_full):
         raise GenerateReporterError(
