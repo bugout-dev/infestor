@@ -1,14 +1,16 @@
 from typing import Tuple, List, Optional
 import os
+from pathlib import Path
+
 import libcst as cst
+
 from . import visitors
 from . import transformers
 from .errors import *
 from .config import (
     default_config_file,
     load_config,
-    save_config,
-    python_root_relative_to_repository_root,
+    InfestorConfiguration,
 )
 
 # TODO(zomglings): Use an Enum here.
@@ -19,9 +21,13 @@ DECORATOR_TYPE_RECORD_CALL = "record_call"
 DECORATOR_TYPE_RECORD_ERRORS = "record_errors"
 
 
-def get_reporter_configuration(repository: str, submodule_path: str) -> Tuple[str, bool, str]:
+def get_reporter_import_information(
+    repository: str,
+    submodule_path: str,
+    configuration: Optional[InfestorConfiguration] = None,
+) -> Tuple[str, bool, str]:
     """
-    Reads reporter configuration from the config file for the given repository.
+    Reads reporter import information (for the given submodule) from the config file for the given repository.
 
     Returns: A tuple containing 3 values:
     1. reporter_module_path - this is the import path from the submodule at the given submodule_path
@@ -31,53 +37,67 @@ def get_reporter_configuration(repository: str, submodule_path: str) -> Tuple[st
     3. reporter_variable_name - The name of the variable representing the HumbugReporter in the
        reporter module for the given repository.
     """
-    config_file = default_config_file(repository)
-    configuration = load_config(config_file)
     if configuration is None:
-        raise GenerateReporterError(
-            f"Could not load configuration from file ({config_file})"
-        )
+        config_file = default_config_file(repository)
+        configuration = load_config(config_file)
+        if configuration is None:
+            raise GenerateReporterError(
+                f"Could not load configuration from file ({config_file})"
+            )
 
     if configuration.reporter_filepath is None:
-        raise GenerateReporterError(
-            f"No reporter defined for project. Try running:\n\t$ infestor -r {repository} generate setup -o report.py"
+        raise GenerateReporterError(f"No reporter defined for project.")
+
+    # We will set this in the next if-else statement.
+    import_path = ""
+
+    if configuration.relative_imports:
+        # TODO(zomglings): Check that common_ancestor is a subpath of repository. Raise error if it is not.
+        common_ancestor = os.path.commonpath(
+            [submodule_path, configuration.reporter_filepath]
         )
-    reporter_filepath = os.path.join(repository, configuration.reporter_filepath)
+        common_ancestor_to_submodule_path = Path(
+            os.path.relpath(submodule_path, start=common_ancestor)
+        )
+        common_ancestor_to_reporter_relpath = Path(
+            os.path.relpath(configuration.reporter_filepath, start=common_ancestor)
+        )
 
-    if not os.path.exists(submodule_path):
-        raise GenerateReporterError(f"No file at submodule_path: {submodule_path}")
+        num_dots = len(common_ancestor_to_submodule_path.parts) - 1
+        import_dots = "." * num_dots
 
-    path_to_reporter_file = os.path.relpath(
-        os.path.join(repository, reporter_filepath),
-        os.path.dirname(submodule_path),
-    )
-    path_components: List[str] = []
-    current_path = path_to_reporter_file
-    while current_path:
-        current_path, base = os.path.split(current_path)
-        if base == os.path.basename(reporter_filepath):
-            base, _ = os.path.splitext(base)
-        path_components = [base] + path_components
-    # TODO: path components for /fixtures/a_script looks
-    #  like ['..', 'report'], for /fixtures/a_package: ['..', '..', 'report']
-    #  so am making '..' to '.' to make it work
+        common_ancestor_to_reporter_path_components = list(
+            common_ancestor_to_reporter_relpath.parts[:-1]
+        )
+        reporter_filename = common_ancestor_to_reporter_relpath.parts[-1]
+        reporter_basename, _ = os.path.splitext(reporter_filename)
+        common_ancestor_to_reporter_path_components.append(reporter_basename)
 
-    name: Optional[str] = None
-    if not configuration.relative_imports:
-        path_components = [os.path.basename(repository)] + path_components
-        name = f"{os.path.basename(repository)}.{path_components[-1]}"
-        # name = ".".join(path_components)
-
+        import_path = (
+            f"{import_dots}.{'.'.join(common_ancestor_to_reporter_path_components)}"
+        )
     else:
-        #TODO this is not working
-        for index, val in enumerate(path_components):
-            if val == "..":
-                path_components[index] = "."
-        name = "." + ".".join(path_components)
-    if configuration.reporter_object_name is None:
-        raise GenerateReporterError("Cannot get reporter object name")
+        repository_to_reporter_path = Path(
+            os.path.relpath(configuration.reporter_filepath, start=repository)
+        )
+        repository_to_reporter_path_components = list(
+            repository_to_reporter_path.parts[:-1]
+        )
+        reporter_filename = repository_to_reporter_path.parts[-1]
+        reporter_basename, _ = os.path.splitext(reporter_filename)
+        repository_to_reporter_path_components.append(reporter_basename)
 
-    return (name, configuration.relative_imports, configuration.reporter_object_name)
+        repository_name = os.path.basename(repository)
+
+        import_path = (
+            f"{repository_name}.{'.'.join(repository_to_reporter_path_components)}"
+        )
+
+    return (
+        import_path,
+        configuration.relative_imports,
+        configuration.reporter_object_name,
+    )
 
 
 class PackageFileManager:
@@ -87,9 +107,11 @@ class PackageFileManager:
         self._load_file(filepath)
 
     def _load_file(self, filepath: str):
-        self.reporter_module_path, self.relative_imports, self.reporter_object_name = get_reporter_configuration(
-            self.repository, filepath
-        )
+        (
+            self.reporter_module_path,
+            self.relative_imports,
+            self.reporter_object_name,
+        ) = get_reporter_import_information(self.repository, filepath)
         with open(filepath, "r") as ifp:
             file_source = ifp.read()
         self._visit(cst.parse_module(file_source))
@@ -121,12 +143,19 @@ class PackageFileManager:
     def add_reporter_import(self) -> None:
         if self.is_reporter_imported():
             return
-        transformer = transformers.ImportReporterTransformer(self.reporter_module_path, self.reporter_object_name)
+        transformer = transformers.ImportReporterTransformer(
+            self.reporter_module_path, self.reporter_object_name
+        )
         modified_tree = self.syntax_tree.visit(transformer)
         self._visit(modified_tree)
 
-        if self.visitor.ReporterImportedAs == "" or self.visitor.ReporterImportedAt == -1:
-            raise GenerateReporterError(f"Failed to import reporter \n{self.get_code()}")
+        if (
+            self.visitor.ReporterImportedAs == ""
+            or self.visitor.ReporterImportedAt == -1
+        ):
+            raise GenerateReporterError(
+                f"Failed to import reporter \n{self.get_code()}"
+            )
 
     def get_calls(self, call_type):
         return self.visitor.calls.get(call_type, [])
