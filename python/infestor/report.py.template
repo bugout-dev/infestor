@@ -5,7 +5,7 @@ consent = HumbugConsent(
     environment_variable_opt_in("REPORTING_ENABLED", yes)
 )
 
-reporter = HumbugReporter(
+{reporter_object_name} = HumbugReporter(
     name="{project_name}",
     consent=consent,
     bugout_token="{reporter_token}",

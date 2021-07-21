@@ -21,7 +21,9 @@ class ImportReporterTransformer(cst.CSTTransformer):
     """
 
     def __init__(self, reporter_module_path, reporter_object_name):
-        self.reporter_import_code = f"from {reporter_module_path} import {reporter_object_name}"
+        self.reporter_import_code = (
+            f"from {reporter_module_path} import {reporter_object_name}"
+        )
         self.last_import: Optional[cst.CSTNode] = None
 
     def visit_Module(self, node: cst.Module) -> Optional[bool]:

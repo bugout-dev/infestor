@@ -281,6 +281,7 @@ def add_reporter(
 
     contents = REPORTER_FILE_TEMPLATE.format(
         project_name=configuration.project_name,
+        reporter_object_name=configuration.reporter_object_name,
         reporter_token=configuration.reporter_token,
     )
     with open(reporter_filepath, "w") as ofp:
