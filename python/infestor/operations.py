@@ -262,11 +262,15 @@ def add_reporter(
             raise GenerateReporterError(
                 f"Configuration expects reporter to be set up at a different file than the one specified; specified={reporter_filepath}, expected={configuration.reporter_filepath}"
             )
-    
-    reporter_filepath_full = os.path.join(repository, reporter_filepath)
-    if (not force) and os.path.exists(reporter_filepath_full):
+
+    if os.path.commonprefix([repository, reporter_filepath]) != repository:
+        raise ValueError(
+            f"Desired reporter file must be contained within the repository: repository={repository}, reporter_filepath={reporter_filepath}"
+        )
+
+    if (not force) and os.path.exists(reporter_filepath):
         raise GenerateReporterError(
-            f"Object already exists at desired reporter filepath: {reporter_filepath_full}"
+            f"Object already exists at desired reporter filepath: {reporter_filepath}"
         )
 
     if configuration.reporter_token is None:
@@ -276,7 +280,7 @@ def add_reporter(
         project_name=configuration.project_name,
         reporter_token=configuration.reporter_token,
     )
-    with open(reporter_filepath_full, "w") as ofp:
+    with open(reporter_filepath, "w") as ofp:
         ofp.write(contents)
 
     configuration.reporter_filepath = reporter_filepath
