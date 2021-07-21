@@ -263,10 +263,13 @@ def add_reporter(
                 f"Configuration expects reporter to be set up at a different file than the one specified; specified={reporter_filepath}, expected={configuration.reporter_filepath}"
             )
 
+    # Reporter filepaths must not be stored relative to the repository. They should contain the
+    # repository path as a prefix.
+    # If the repository is not a prefix, we prepend the repository path to the reporter_filepath to
+    # make it so.
+    # TODO(zomglings): This could cause errors in the future, and we should clean this up.
     if os.path.commonprefix([repository, reporter_filepath]) != repository:
-        raise ValueError(
-            f"Desired reporter file must be contained within the repository: repository={repository}, reporter_filepath={reporter_filepath}"
-        )
+        reporter_filepath = os.path.join(repository, reporter_filepath)
 
     if (not force) and os.path.exists(reporter_filepath):
         raise GenerateReporterError(
