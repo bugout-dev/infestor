@@ -42,6 +42,7 @@ class TestReporterFileVisitor(InfestorTestCase):
         self.assertNotEqual(visitor.HumbugReporterTokenArgument, "")
 
 
+# TODO(yhtiyar): Write some tests for PackageFileVisitor. :)
 class TestPackageFileVisitor(unittest.TestCase):
     def setUp(self):
         self.source = ""

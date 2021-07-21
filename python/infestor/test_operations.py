@@ -23,14 +23,16 @@ class TestSetupReporter(InfestorTestCase):
             infestor_json_old = json.load(ifp)
         self.assertIsNone(infestor_json_old["reporter_filepath"])
 
-        reporter_filepath = os.path.join(self.package_dir, "report.py")
+        reporter_filepath = os.path.join(
+            self.package_dir, operations.DEFAULT_REPORTER_FILENAME
+        )
         self.assertFalse(os.path.exists(reporter_filepath))
 
         operations.add_reporter(self.package_dir)
 
         with open(self.config_file, "r") as ifp:
             infestor_json_new = json.load(ifp)
-        self.assertEqual(infestor_json_new["reporter_filepath"], "report.py")
+        self.assertEqual(infestor_json_new["reporter_filepath"], reporter_filepath)
         self.assertTrue(os.path.exists(reporter_filepath))
 
         reporter_visitor = visitors.ReporterFileVisitor()

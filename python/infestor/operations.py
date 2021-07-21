@@ -18,6 +18,7 @@ from .config import (
 )
 
 DEFAULT_REPORTER_FILENAME = "report.py"
+DEFAULT_REPORTER_OBJECT_NAME = "reporter"
 REPORTER_FILE_TEMPLATE: Optional[str] = None
 TEMPLATE_FILEPATH = os.path.join(os.path.dirname(__file__), "report.py.template")
 
@@ -262,10 +263,17 @@ def add_reporter(
                 f"Configuration expects reporter to be set up at a different file than the one specified; specified={reporter_filepath}, expected={configuration.reporter_filepath}"
             )
 
-    reporter_filepath_full = os.path.join(repository, reporter_filepath)
-    if (not force) and os.path.exists(reporter_filepath_full):
+    # Reporter filepaths must not be stored relative to the repository. They should contain the
+    # repository path as a prefix.
+    # If the repository is not a prefix, we prepend the repository path to the reporter_filepath to
+    # make it so.
+    # TODO(zomglings): This could cause errors in the future, and we should clean this up.
+    if os.path.commonprefix([repository, reporter_filepath]) != repository:
+        reporter_filepath = os.path.join(repository, reporter_filepath)
+
+    if (not force) and os.path.exists(reporter_filepath):
         raise GenerateReporterError(
-            f"Object already exists at desired reporter filepath: {reporter_filepath_full}"
+            f"Object already exists at desired reporter filepath: {reporter_filepath}"
         )
 
     if configuration.reporter_token is None:
@@ -273,9 +281,10 @@ def add_reporter(
 
     contents = REPORTER_FILE_TEMPLATE.format(
         project_name=configuration.project_name,
+        reporter_object_name=configuration.reporter_object_name,
         reporter_token=configuration.reporter_token,
     )
-    with open(reporter_filepath_full, "w") as ofp:
+    with open(reporter_filepath, "w") as ofp:
         ofp.write(contents)
 
     configuration.reporter_filepath = reporter_filepath

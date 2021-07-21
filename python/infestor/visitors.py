@@ -152,7 +152,12 @@ class PackageFileVisitor(cst.CSTVisitor):
     METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
     last_import_lineno = 0
 
-    def __init__(self, reporter_module_path: str, relative_imports: bool):
+    def __init__(
+        self,
+        reporter_module_path: str,
+        relative_imports: bool,
+        reporter_object_name: str = "reporter",
+    ):
         self.ReporterImportedAs: str = ""
         self.ReporterImportedAt: int = -1
         self.ReporterCorrectlyImported: bool = False
@@ -160,6 +165,10 @@ class PackageFileVisitor(cst.CSTVisitor):
         self.relative_imports = relative_imports
         self.reporter_module_path = reporter_module_path
         self.scope_stack: List[str] = []
+        self.reporter_object_name = reporter_object_name
+        self.seeking_import_node = cst.parse_statement(
+            f"from {reporter_module_path} import {reporter_object_name}"
+        )
 
         self.calls: Dict[str, List[models.ReporterCall]] = {}
         self.decorators: Dict[str, List[models.ReporterDecorator]] = {}
@@ -237,7 +246,7 @@ class PackageFileVisitor(cst.CSTVisitor):
     def check_alias_for_reporter(self, import_aliases, position):
         for alias in import_aliases:
             name = alias.name.value
-            if name == "reporter":
+            if name == self.reporter_object_name:
                 asname = alias.asname
                 if asname:
                     self.ReporterImportedAs = asname.name.value
@@ -252,30 +261,14 @@ class PackageFileVisitor(cst.CSTVisitor):
         if self.scope_stack:
             return False
         position = self.get_metadata(cst.metadata.PositionProvider, node)
-        if self.relative_imports:
-            expected_level = 0
-            for character in self.reporter_module_path:
-                if character == ".":
-                    expected_level += 1
-                else:
-                    break
-            node_import_level = 0
-            for dot in node.relative:
-                if isinstance(dot, cst.Dot):
-                    node_import_level += 1
-                else:
-                    break
-            if (
-                node_import_level == expected_level
-                and isinstance(node.module, cst.Name)
-                and node.module.value == self.reporter_module_path[expected_level:]
-            ):
-                import_aliases = node.names
-                self.check_alias_for_reporter(import_aliases, position)
 
-        elif self.matches_with_package_import(node):
-            import_aliases = node.names
-            self.check_alias_for_reporter(import_aliases, position)
+        temp_node = cst.SimpleStatementLine(body=[node])
+        if temp_node.deep_equals(self.seeking_import_node):
+            self.ReporterImportedAs = self.reporter_object_name
+            self.ReporterImportedAt = position.start.line
+            self.ReporterCorrectlyImported = (
+                position.start.line == self.last_import_lineno + 1
+            )
 
         self.last_import_lineno = position.end.line
         return False
