@@ -152,7 +152,12 @@ class PackageFileVisitor(cst.CSTVisitor):
     METADATA_DEPENDENCIES = (cst.metadata.PositionProvider,)
     last_import_lineno = 0
 
-    def __init__(self, reporter_module_path: str, relative_imports: bool, reporter_object_name: str = "reporter"):
+    def __init__(
+        self,
+        reporter_module_path: str,
+        relative_imports: bool,
+        reporter_object_name: str = "reporter",
+    ):
         self.ReporterImportedAs: str = ""
         self.ReporterImportedAt: int = -1
         self.ReporterCorrectlyImported: bool = False
@@ -161,7 +166,9 @@ class PackageFileVisitor(cst.CSTVisitor):
         self.reporter_module_path = reporter_module_path
         self.scope_stack: List[str] = []
         self.reporter_object_name = reporter_object_name
-        self.seeking_import_node = cst.parse_statement(f"from {reporter_module_path} import {reporter_object_name}")
+        self.seeking_import_node = cst.parse_statement(
+            f"from {reporter_module_path} import {reporter_object_name}"
+        )
 
         self.calls: Dict[str, List[models.ReporterCall]] = {}
         self.decorators: Dict[str, List[models.ReporterDecorator]] = {}
@@ -254,17 +261,14 @@ class PackageFileVisitor(cst.CSTVisitor):
         if self.scope_stack:
             return False
         position = self.get_metadata(cst.metadata.PositionProvider, node)
-        if self.relative_imports:
-            temp_node = cst.SimpleStatementLine(body=[node])
-            if temp_node.deep_equals(self.seeking_import_node):
-                self.ReporterImportedAs = self.reporter_object_name
-                self.ReporterImportedAt = position.start.line
-                self.ReporterCorrectlyImported = (
-                    position.start.line == self.last_import_lineno + 1
-                )
-        elif self.matches_with_package_import(node):
-            import_aliases = node.names
-            self.check_alias_for_reporter(import_aliases, position)
+
+        temp_node = cst.SimpleStatementLine(body=[node])
+        if temp_node.deep_equals(self.seeking_import_node):
+            self.ReporterImportedAs = self.reporter_object_name
+            self.ReporterImportedAt = position.start.line
+            self.ReporterCorrectlyImported = (
+                position.start.line == self.last_import_lineno + 1
+            )
 
         self.last_import_lineno = position.end.line
         return False
