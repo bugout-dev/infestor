@@ -19,8 +19,18 @@ DECORATOR_TYPE_RECORD_CALL = "record_call"
 DECORATOR_TYPE_RECORD_ERRORS = "record_errors"
 
 
-def get_reporter_module_path(repository: str, submodule_path: str) -> Tuple[str, bool, str]:
+def get_reporter_configuration(repository: str, submodule_path: str) -> Tuple[str, bool, str]:
+    """
+    Reads reporter configuration from the config file for the given repository.
 
+    Returns: A tuple containing 3 values:
+    1. reporter_module_path - this is the import path from the submodule at the given submodule_path
+       for the module containing the repoter.
+    2. is_import_relative - True or False depending on whether the reporter module path represents
+       an import relative to the repository package or not
+    3. reporter_variable_name - The name of the variable representing the HumbugReporter in the
+       reporter module for the given repository.
+    """
     config_file = default_config_file(repository)
     configuration = load_config(config_file)
     if configuration is None:
@@ -66,7 +76,7 @@ def get_reporter_module_path(repository: str, submodule_path: str) -> Tuple[str,
         name = "." + ".".join(path_components)
     if configuration.reporter_object_name is None:
         raise GenerateReporterError("Cannot get reporter object name")
-    
+
     return (name, configuration.relative_imports, configuration.reporter_object_name)
 
 
@@ -77,7 +87,7 @@ class PackageFileManager:
         self._load_file(filepath)
 
     def _load_file(self, filepath: str):
-        self.reporter_module_path, self.relative_imports, self.reporter_object_name = get_reporter_module_path(
+        self.reporter_module_path, self.relative_imports, self.reporter_object_name = get_reporter_configuration(
             self.repository, filepath
         )
         with open(filepath, "r") as ifp:
